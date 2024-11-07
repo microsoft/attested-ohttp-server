@@ -18,6 +18,7 @@ endif
 export INPUT ?= ${PWD}/examples/audio.mp3
 export MOUNTED_INPUT ?= /examples/audio.mp3
 export INJECT_HEADERS ?= openai-internal-enableasrsupport
+export DETACHED ?=
 
 # Build commands
 
@@ -67,10 +68,10 @@ service-cert:
 # Server and whisper deployment
 
 run-server-whisper:
-	docker compose -f ./docker/docker-compose-whisper.yml up
+	docker compose -f ./docker/docker-compose-whisper.yml up ${DETACHED}
 
 run-server-whisper-gpu:
-	docker compose -f ./docker/docker-compose-whisper-gpu.yml up
+	docker compose -f ./docker/docker-compose-whisper-gpu.yml up ${DETACHED}
 
 # Containerized client deployments
 
