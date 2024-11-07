@@ -1,7 +1,7 @@
 [package]
 name = "ohttp-server"
 version = "0.1.0"
-authors = ["Kapil Vaswani <kapilv@microsoft.com>"]
+authors = ["Antoine Delignat-Lavaud <antdl@microsoft.com>", "Arthi Gokarn <arthig@microsoft.com>", "Kapil Vaswani <kapilv@microsoft.com>", "Tien Le <tienle@microsoft.com>"]
 edition = "2021"
 
 [features]
