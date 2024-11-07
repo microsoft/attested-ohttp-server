@@ -13,5 +13,12 @@ services:
   whisper:
     image: whisper-api
     network_mode: "host"
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
     ports:
       - "3000:3000"

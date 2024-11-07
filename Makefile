@@ -58,14 +58,19 @@ run-whisper:
 run-whisper-faster: 
 	docker run --network=host fedirz/faster-whisper-server:latest-cuda
 
-run-server-whisper:
-	docker compose -f ./docker/docker-compose-whisper.yml up
-
 run-server-faster:
 	docker compose -f ./docker/docker-compose-faster-whisper.yml up
 
 service-cert:
 	curl -s -k ${KMS}/node/network | jq -r .service_certificate > service_cert.pem
+
+# Server and whisper deployment
+
+run-server-whisper:
+	docker compose -f ./docker/docker-compose-whisper.yml up
+
+run-server-whisper-gpu:
+	docker compose -f ./docker/docker-compose-whisper-gpu.yml up
 
 # Containerized client deployments
 
