@@ -20,7 +20,7 @@ make build-server-container
 
 ## Testing
 
-For testing, this repository includes a sample whisper container. 
+For local testing, this repository includes a sample whisper container. 
 
 ```
 make build-whisper-container
@@ -33,12 +33,13 @@ git submodule update --recursive
 make build-client-container
 ```
 
-Finally, run the containers locally
+Finally, run the containers locally. This command will launch the OHTTP server in a mode where the server generates its own HPKE key pair, and publish an OHTTP key configuration at a local endpoint ```http://127.0.0.1:9443/discover```. This will also launch the whisper container, which listens at the endpoint ```http://127.0.0.1:3000/whisper```. 
+
 ```
 make run-server-whisper
 ```
 
-In a separate terminal,
+In a separate terminal, launch the client providing as input an audio file (included in this repo) and a OHTTP key configuration obtained from the discovery endpoint.
 ```
 ./scripts/service_wait.sh 127.0.0.1:3000
 ./scripts/service_wait.sh 127.0.0.1:9443
