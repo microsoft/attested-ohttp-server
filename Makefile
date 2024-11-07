@@ -15,10 +15,11 @@ else
 	echo "Unknown model"
 endif
 	
-export INPUT ?= ${PWD}/examples/audio.mp3
-export MOUNTED_INPUT ?= /examples/audio.mp3
+export INPUT_DIR ?= ${PWD}/examples
+export MOUNTED_INPUT_DIR ?= /test
+export INPUT_FILE ?= audio.mp3
 export INJECT_HEADERS ?= openai-internal-enableasrsupport
-export DETACHED ?=
+export DETACHED ?= 
 
 # Build commands
 
@@ -76,10 +77,10 @@ run-server-whisper-gpu:
 # Containerized client deployments
 
 run-client-container:
-	docker run --net=host \
-	attested-ohttp-client $(SCORING_ENDPOINT) -F "file=@${MOUNTED_INPUT}" --target-path ${TARGET_PATH}
+	docker run --net=host --volume ${INPUT_DIR}:${MOUNTED_INPUT_DIR} \
+	attested-ohttp-client $(SCORING_ENDPOINT) -F "file=@${MOUNTED_INPUT_DIR}/${INPUT_FILE}" --target-path ${TARGET_PATH}
 
 run-client-container-aoai:
-	docker run --volume -e KMS_URL=${KMS} \
-	attested-ohttp-client ${SCORING_ENDPOINT} -F "file=@${MOUNTED_INPUT}" --target-path ${TARGET_PATH} \
+	docker run --volume ${INPUT_DIR}:${MOUNTED_INPUT_DIR} -e KMS_URL=${KMS} \
+	attested-ohttp-client ${SCORING_ENDPOINT} -F "file=@${MOUNTED_INPUT_DIR}/${INPUT_FILE}" --target-path ${TARGET_PATH} \
 	-O "api-key: ${API_KEY}" -F "response_format=json"
