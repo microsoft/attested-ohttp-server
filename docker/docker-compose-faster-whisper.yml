@@ -1,6 +1,6 @@
 services:
   server:
-    image: ohttp-server
+    image: attested-ohttp-server
     ports:
       - "9443:9443"
     network_mode: "host"
