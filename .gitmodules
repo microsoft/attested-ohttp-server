@@ -1,0 +1,3 @@
+[submodule "external/attested-ohttp-client"]
+	path = external/attested-ohttp-client
+	url = https://github.com/microsoft/attested-ohttp-client

@@ -1,0 +1,9 @@
+services:
+  server:
+    image: attested-ohttp-server
+    ports:
+      - "9443:9443"
+    network_mode: "host"
+    environment:
+      - TARGET=${TARGET}
+      - LOCAL_KEY=1

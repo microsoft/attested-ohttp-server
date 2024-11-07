@@ -1,0 +1,18 @@
+{
+  "name": "Development Container",
+  "dockerFile": "Dockerfile",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "vsls-contrib.codetour"
+      ]    
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-from-docker:1": {}
+  },
+  "runArgs": [
+    "--network=host"
+  ]
+}
