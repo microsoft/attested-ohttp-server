@@ -18,7 +18,6 @@ endif
 export INPUT ?= ${PWD}/examples/audio.mp3
 export MOUNTED_INPUT ?= /examples/audio.mp3
 export INJECT_HEADERS ?= openai-internal-enableasrsupport
-export DETACHED ?= -d
 
 # Build commands
 
@@ -29,10 +28,10 @@ build-whisper-container:
 	docker build -f docker/whisper/Dockerfile -t whisper-api ./docker/whisper
 
 build-server-container:
-	docker build -f docker/server/Dockerfile -t ohttp-server .
+	docker build -f docker/server/Dockerfile -t attested-ohttp-server .
 
 build-client-container:
-	docker build -f external/attested-ohttp-client/docker/Dockerfile -t ohttp-client external/attested-ohttp-client/
+	docker build -f external/attested-ohttp-client/docker/Dockerfile -t attested-ohttp-client external/attested-ohttp-client/
 
 build: build-server-container build-client-container build-whisper-container
 
@@ -49,7 +48,7 @@ run-server-container-cvm:
 	docker run --privileged --net=host \
 	-e TARGET=${TARGET} -e MAA_URL=${MAA} -e KMS_URL=${KMS}/app/key -e INJECT_HEADERS=${INJECT_HEADERS} \
 	--mount type=bind,source=/sys/kernel/security,target=/sys/kernel/security \
-	--device /dev/tpmrm0  ohttp-server
+	--device /dev/tpmrm0  attested-ohttp-server
 
 # Whisper deployments
 
@@ -60,7 +59,7 @@ run-whisper-faster:
 	docker run --network=host fedirz/faster-whisper-server:latest-cuda
 
 run-server-whisper:
-	docker compose -f ./docker/docker-compose-whisper.yml up ${DETACHED}
+	docker compose -f ./docker/docker-compose-whisper.yml up
 
 run-server-faster:
 	docker compose -f ./docker/docker-compose-faster-whisper.yml up
@@ -72,9 +71,9 @@ service-cert:
 
 run-client-container:
 	docker run --net=host \
-	ohttp-client $(SCORING_ENDPOINT) -F "file=@${MOUNTED_INPUT}" --target-path ${TARGET_PATH}
+	attested-ohttp-client $(SCORING_ENDPOINT) -F "file=@${MOUNTED_INPUT}" --target-path ${TARGET_PATH}
 
 run-client-container-aoai:
 	docker run --volume -e KMS_URL=${KMS} \
-	ohttp-client ${SCORING_ENDPOINT} -F "file=@${MOUNTED_INPUT}" --target-path ${TARGET_PATH} \
+	attested-ohttp-client ${SCORING_ENDPOINT} -F "file=@${MOUNTED_INPUT}" --target-path ${TARGET_PATH} \
 	-O "api-key: ${API_KEY}" -F "response_format=json"
