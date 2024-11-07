@@ -1,14 +1,50 @@
-# Project
+# Attested OHTTP Server
 
-> This repo has been populated by an initial template to help get you started. Please
-> make sure to update the content to build a great experience for community-building.
+This repository is an implementation of an attested OHTTP server for [Azure AI Confidential Inferencing](https://techcommunity.microsoft.com/blog/azure-ai-services-blog/azure-ai-confidential-inferencing-preview/4248181). 
+Together with [attested OHTTP client](https://github.com/microsoft/attested-ohttp-client) and a [transparent 
+key management service](https://github.com/microsoft/azure-transparent-kms), it enables secure communication between clients and [Confidential GPU VMs](https://) serving Azure AI models using [chunked OHTTP](https://www.ietf.org/archive/id/draft-ohai-chunked-ohttp-01.html). Learn more here. 
 
-As the maintainer of this project, please make a few updates:
+- [Azure AI Confidential Inferencing: Technical Deep Dive](https://techcommunity.microsoft.com/blog/azureconfidentialcomputingblog/azure-ai-confidential-inferencing-technical-deep-dive/4253150)
 
-- Improving this README.MD file to provide a great experience
-- Updating SUPPORT.MD with content about this project's support experience
-- Understanding the security reporting process in SECURITY.MD
-- Remove this section from the README
+## Build
+
+The repo supports build and development using GitHub Codespaces and devcontainers. The repository includes a devcontainer configuration that installs all dependencies.
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/microsoft/attested-ohttp-server). 
+
+Build the attested OHTTP server container.
+
+```
+make build-server-container
+```
+
+## Test
+
+For local testing, this repository includes a sample whisper container. 
+
+```
+make build-whisper-container
+```
+
+Next, clone and build the attested OHTTP client container. 
+
+```
+git submodule update --recursive
+make build-client-container
+```
+
+Finally, run the containers locally. This command will launch the OHTTP server in a mode where the server generates its own HPKE key pair, and publish an OHTTP key configuration at a local endpoint ```http://127.0.0.1:9443/discover```. This will also launch the whisper container, which listens at the endpoint ```http://127.0.0.1:3000/whisper```. 
+
+```
+make run-server-whisper
+```
+
+In a separate terminal, launch the client providing as input an audio file (included in this repo) and a OHTTP key configuration obtained from the discovery endpoint.
+```
+./scripts/service_wait.sh 127.0.0.1:3000
+./scripts/service_wait.sh 127.0.0.1:9443
+make run-client-container
+```
 
 ## Contributing
 

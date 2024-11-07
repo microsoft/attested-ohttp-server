@@ -1,0 +1,76 @@
+name: CI
+on:
+  push:
+    branches: ["main"]
+    paths-ignore: ["*.md", "LICENSE-*"]
+  pull_request:
+    branches: ["main"]
+    paths-ignore: ["*.md", "LICENSE-*"]
+  workflow_dispatch:
+  
+env:
+  CARGO_TERM_COLOR: always
+  
+jobs:
+  check:
+    name: Continuous Integration
+    runs-on: ubuntu-latest
+    env:
+      NSS_DIR: ${{ github.workspace }}/nss
+    strategy:
+      fail-fast: false
+      matrix:
+        hpke:
+          - rust-hpke
+        rust:
+          - 1.75.0
+          - stable
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy, llvm-tools-preview
+
+      - name: Check formatting
+        if: ${{ success() || failure() }}
+        run: |
+          cargo +${{ matrix.rust }} fmt --all -- --check --config imports_granularity=Crate
+
+      - name: Clippy
+        if: ${{ success() || failure() }}
+        run: |
+          cargo clippy --tests 
+
+  container-build-and-test:
+    name: Container build and test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build container images
+        run: |
+          make build
+
+      - name: Run server container image
+        run: |
+          DETACHED="-d" make run-server-whisper
+
+      - name: Run client image
+        run: | 
+          ./scripts/service_wait.sh 127.0.0.1:3000
+          ./scripts/service_wait.sh 127.0.0.1:9443
+          make run-client-container
+
+      - name: Stop containers
+        run: |
+          docker stop $(docker ps -q)
