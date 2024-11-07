@@ -1,20 +1,10 @@
 KMS ?= https://accconfinferencedebug.confidential-ledger.azure.com
 MAA ?= https://maanosecureboottestyfu.eus.attest.azure.net
 
-# MODEL can be whisper_opensource or whisper_aoai 
-MODEL ?= whisper_opensource
-ifeq ($(MODEL), whisper_opensource)
-	export TARGET ?= http://127.0.0.1:3000
-	export TARGET_PATH ?= '/whisper'
-	export SCORING_ENDPOINT ?= 'http://localhost:9443/score'
-else ifeq ($(MODEL), whisper_aoai)
-	TARGET ?= http://127.0.0.1:5001
-	TARGET_PATH ?= '/v1/engines/whisper/audio/transcriptions'
-	SCORING_ENDPOINT ?= 'http://localhost:9443/score'
-else
-	echo "Unknown model"
-endif
-	
+export TARGET ?= http://127.0.0.1:3000
+export TARGET_PATH ?= '/whisper'
+export SCORING_ENDPOINT ?= 'http://localhost:9443/score'
+
 export INPUT_DIR ?= ${PWD}/examples
 export MOUNTED_INPUT_DIR ?= /test
 export INPUT_FILE ?= audio.mp3
