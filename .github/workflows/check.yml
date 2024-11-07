@@ -63,7 +63,7 @@ jobs:
 
       - name: Run server container image
         run: |
-          make run-server-whisper
+          DETACHED="-d" make run-server-whisper
 
       - name: Run client image
         run: | 
