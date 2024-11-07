@@ -67,10 +67,10 @@ run-server-whisper-gpu:
 # Containerized client deployments
 
 run-client-container:
-	docker run --net=host --volume ${INPUT_DIR}:${MOUNTED_INPUT_DIR} attested-ohttp-client \ 
+	docker run --net=host --volume ${INPUT_DIR}:${MOUNTED_INPUT_DIR} attested-ohttp-client \
 	$(SCORING_ENDPOINT) -F "file=@${MOUNTED_INPUT_DIR}/${INPUT_FILE}" --target-path ${TARGET_PATH}
 
 run-client-container-aoai:
-	docker run --volume ${INPUT_DIR}:${MOUNTED_INPUT_DIR} -e KMS_URL=${KMS} attested-ohttp-client \ 
+	docker run --volume ${INPUT_DIR}:${MOUNTED_INPUT_DIR} -e KMS_URL=${KMS} attested-ohttp-client \
 	${SCORING_ENDPOINT} -F "file=@${MOUNTED_INPUT_DIR}/${INPUT_FILE}" --target-path ${TARGET_PATH} \
 	-O "api-key: ${API_KEY}" -F "response_format=json"
