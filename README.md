@@ -6,7 +6,7 @@ key management service](https://github.com/microsoft/azure-transparent-kms), it 
 
 - [Azure AI Confidential Inferencing: Technical Deep Dive](https://techcommunity.microsoft.com/blog/azureconfidentialcomputingblog/azure-ai-confidential-inferencing-technical-deep-dive/4253150)
 
-## Building
+## Build
 
 The repo supports build and development using GitHub Codespaces and devcontainers. The repository includes a devcontainer configuration that installs all dependencies.
 
@@ -18,7 +18,7 @@ Build the attested OHTTP server container.
 make build-server-container
 ```
 
-## Testing
+## Test
 
 For local testing, this repository includes a sample whisper container. 
 
