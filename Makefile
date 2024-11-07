@@ -25,9 +25,6 @@ export DETACHED ?= -d
 build-server:
 	cargo build --bin ohttp-server
 
-build-client:
-	cargo build --bin ohttp-client
-
 build-whisper-container:
 	docker build -f docker/whisper/Dockerfile -t whisper-api ./docker/whisper
 
@@ -35,13 +32,13 @@ build-server-container:
 	docker build -f docker/server/Dockerfile -t ohttp-server .
 
 build-client-container:
-	docker build -f docker/client/Dockerfile -t ohttp-client .
+	docker build -f external/attested-ohttp-client/docker/Dockerfile -t ohttp-client external/attested-ohttp-client/
 
 build: build-server-container build-client-container build-whisper-container
 
 format-checks:
 	cargo fmt --all -- --check --config imports_granularity=Crate
-	cargo clippy --tests --no-default-features --features rust-hpke,client,server
+	cargo clippy --tests --no-default-features --features rust-hpke,server
 
 # Containerized server deployments
 
@@ -74,10 +71,10 @@ service-cert:
 # Containerized client deployments
 
 run-client-container:
-	docker run --net=host --volume ${INPUT}:${MOUNTED_INPUT} \
+	docker run --net=host \
 	ohttp-client $(SCORING_ENDPOINT) -F "file=@${MOUNTED_INPUT}" --target-path ${TARGET_PATH}
 
 run-client-container-aoai:
-	docker run --volume ${INPUT}:${MOUNTED_INPUT} -e KMS_URL=${KMS} \
+	docker run --volume -e KMS_URL=${KMS} \
 	ohttp-client ${SCORING_ENDPOINT} -F "file=@${MOUNTED_INPUT}" --target-path ${TARGET_PATH} \
 	-O "api-key: ${API_KEY}" -F "response_format=json"
