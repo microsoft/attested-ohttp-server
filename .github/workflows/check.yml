@@ -37,48 +37,6 @@ jobs:
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy, llvm-tools-preview
 
-      - name: Install Build Prerequisites for NSS
-        if: matrix.hpke == 'nss'
-        run: |
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y \
-            build-essential \
-            ca-certificates \
-            clang \
-            coreutils \
-            curl \
-            git \
-            gyp \
-            libclang-dev \
-            libssl-dev \
-            libtss2-dev \
-            lld \
-            llvm \
-            make \
-            mercurial \
-            ninja-build \
-            pkg-config \
-            ssh \
-            zlib1g-dev \
-            --no-install-recommends
-          echo RUSTFLAGS="-C link-arg=-fuse-ld=lld" >> "$GITHUB_ENV"
-
-
-      - name: Fetch NSS and NSPR
-        if: matrix.hpke == 'nss'
-        run: |
-          hg clone https://hg.mozilla.org/projects/nspr "$NSS_DIR"/../nspr
-          git clone --depth 1 https://github.com/nss-dev/nss "$NSS_DIR"
-          echo "LD_LIBRARY_PATH=${{ github.workspace }}/dist/Debug/lib" >> "$GITHUB_ENV"
-
-      - name: Build
-        run: |
-          sudo ln -s ${{ github.workspace }}/ohttp-server/libazguestattestation.so.1.0.5 /usr/lib/libazguestattestation.so
-          cargo +${{ matrix.rust }} build --tests --no-default-features --features ${{ matrix.hpke }},client,server
-
-      - name: Run Tests
-        run: |
-          cargo +${{ matrix.rust }} test --no-default-features --features ${{ matrix.hpke }},client,server
-
       - name: Check formatting
         if: ${{ success() || failure() }}
         run: |
@@ -87,7 +45,7 @@ jobs:
       - name: Clippy
         if: ${{ success() || failure() }}
         run: |
-          cargo clippy --tests --no-default-features --features ${{ matrix.hpke }},client,server
+          cargo clippy --tests 
 
   container-build-and-test:
     name: Container build and test

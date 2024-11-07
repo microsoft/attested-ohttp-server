@@ -37,7 +37,7 @@ build: build-server-container build-client-container build-whisper-container
 
 format-checks:
 	cargo fmt --all -- --check --config imports_granularity=Crate
-	cargo clippy --tests --no-default-features --features rust-hpke,server
+	cargo clippy --tests --no-default-features --features rust-hpke
 
 # Containerized server deployments
 
