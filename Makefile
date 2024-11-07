@@ -1,7 +1,7 @@
 KMS ?= https://accconfinferencedebug.confidential-ledger.azure.com
 MAA ?= https://maanosecureboottestyfu.eus.attest.azure.net
 
-# MODEL can be whisper_opensource, whisper_aoai or whisper_aoai_local
+# MODEL can be whisper_opensource or whisper_aoai 
 MODEL ?= whisper_opensource
 ifeq ($(MODEL), whisper_opensource)
 	export TARGET ?= http://127.0.0.1:3000
@@ -77,10 +77,10 @@ run-server-whisper-gpu:
 # Containerized client deployments
 
 run-client-container:
-	docker run --net=host --volume ${INPUT_DIR}:${MOUNTED_INPUT_DIR} \
-	attested-ohttp-client $(SCORING_ENDPOINT) -F "file=@${MOUNTED_INPUT_DIR}/${INPUT_FILE}" --target-path ${TARGET_PATH}
+	docker run --net=host --volume ${INPUT_DIR}:${MOUNTED_INPUT_DIR} attested-ohttp-client \ 
+	$(SCORING_ENDPOINT) -F "file=@${MOUNTED_INPUT_DIR}/${INPUT_FILE}" --target-path ${TARGET_PATH}
 
 run-client-container-aoai:
-	docker run --volume ${INPUT_DIR}:${MOUNTED_INPUT_DIR} -e KMS_URL=${KMS} \
-	attested-ohttp-client ${SCORING_ENDPOINT} -F "file=@${MOUNTED_INPUT_DIR}/${INPUT_FILE}" --target-path ${TARGET_PATH} \
+	docker run --volume ${INPUT_DIR}:${MOUNTED_INPUT_DIR} -e KMS_URL=${KMS} attested-ohttp-client \ 
+	${SCORING_ENDPOINT} -F "file=@${MOUNTED_INPUT_DIR}/${INPUT_FILE}" --target-path ${TARGET_PATH} \
 	-O "api-key: ${API_KEY}" -F "response_format=json"
