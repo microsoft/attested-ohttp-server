@@ -171,7 +171,12 @@ fn fetch_maa_token(maa: &str) -> Res<String> {
 
 /// Retrieves the HPKE private key from Azure KMS.
 ///
-async fn get_hpke_private_key_from_kms(kms: &str, kid: u8, token: &str) -> Res<String> {
+async fn get_hpke_private_key_from_kms(
+    kms: &str,
+    kid: u8,
+    token: &str,
+    x_ms_request_id: &Uuid,
+) -> Res<String> {
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
         .build()?;
@@ -188,6 +193,7 @@ async fn get_hpke_private_key_from_kms(kms: &str, kid: u8, token: &str) -> Res<S
         let response = client
             .post(url)
             .header("Authorization", format!("Bearer {token}"))
+            .header("x-ms-kms-request-id", x_ms_request_id.to_string())
             .send()
             .await?;
 
@@ -231,7 +237,12 @@ async fn get_hpke_private_key_from_kms(kms: &str, kid: u8, token: &str) -> Res<S
     }
 }
 
-async fn load_config(maa: &str, kms: &str, kid: u8) -> Res<(KeyConfig, String)> {
+async fn load_config(
+    maa: &str,
+    kms: &str,
+    kid: u8,
+    x_ms_request_id: &Uuid,
+) -> Res<(KeyConfig, String)> {
     // Check if the key configuration is in cache
     if let Some((config, token)) = cache.get(&kid).await {
         info!("Found OHTTP configuration for KID {kid} in cache.");
@@ -240,7 +251,7 @@ async fn load_config(maa: &str, kms: &str, kid: u8) -> Res<(KeyConfig, String)> 
 
     // Get MAA token from CVM guest attestation library
     let token = fetch_maa_token(maa)?;
-    let key = get_hpke_private_key_from_kms(kms, kid, &token).await?;
+    let key = get_hpke_private_key_from_kms(kms, kid, &token, x_ms_request_id).await?;
     let (d, returned_kid) = parse_cbor_key(&key, kid)?;
 
     let sk = match d {
@@ -381,7 +392,7 @@ async fn score(
     };
     let maa_url = args.maa_url.clone().unwrap_or(DEFAULT_MAA_URL.to_string());
     let kms_url = args.kms_url.clone().unwrap_or(DEFAULT_KMS_URL.to_string());
-    let (ohttp, token) = match load_config(&maa_url, &kms_url, kid).await {
+    let (ohttp, token) = match load_config(&maa_url, &kms_url, kid, &x_ms_request_id).await {
         Err(e) => {
             let error_msg = "Failed to get or load OHTTP configuration.";
             error!("{error_msg} {e}");
@@ -487,7 +498,9 @@ async fn discover(args: Arc<Args>) -> Result<impl warp::Reply, std::convert::Inf
             .body(Body::from(&b"Not found"[..])));
     }
 
-    match load_config(maa_url, kms_url, 0).await {
+    let x_ms_request_id = Uuid::new_v4();
+    info!("x_ms_request_id:{}", x_ms_request_id);
+    match load_config(maa_url, kms_url, 0, &x_ms_request_id).await {
         Ok((config, _)) => match KeyConfig::encode_list(&[config]) {
             Ok(list) => {
                 let hex = hex::encode(list);
