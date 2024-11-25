@@ -45,7 +45,7 @@ run-server-container-cvm:
 # Whisper deployments
 
 run-whisper:
-	docker run --network=host whisper-api 
+	docker run ${DETACHED} --network=host whisper-api 
 
 run-whisper-faster: 
 	docker run --network=host fedirz/faster-whisper-server:latest-cuda
@@ -68,6 +68,10 @@ run-server-whisper-gpu:
 
 run-client-container:
 	docker run --net=host --volume ${INPUT_DIR}:${MOUNTED_INPUT_DIR} attested-ohttp-client \
+	$(SCORING_ENDPOINT) -F "file=@${MOUNTED_INPUT_DIR}/${INPUT_FILE}" --target-path ${TARGET_PATH}
+
+run-client-container-cvm:
+	docker run --net=host --volume ${INPUT_DIR}:${MOUNTED_INPUT_DIR} -e KMS_URL=${KMS} attested-ohttp-client \
 	$(SCORING_ENDPOINT) -F "file=@${MOUNTED_INPUT_DIR}/${INPUT_FILE}" --target-path ${TARGET_PATH}
 
 run-client-container-aoai:
