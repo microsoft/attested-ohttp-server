@@ -1,4 +1,4 @@
-KMS ?= https://accconfinferencedebug.confidential-ledger.azure.com
+KMS ?= https://accconfinferenceprod.confidential-ledger.azure.com
 MAA ?= https://maanosecureboottestyfu.eus.attest.azure.net
 
 export TARGET ?= http://127.0.0.1:3000
@@ -45,7 +45,7 @@ run-server-container-cvm:
 # Whisper deployments
 
 run-whisper:
-	docker run --network=host whisper-api 
+	docker run ${DETACHED} --network=host whisper-api 
 
 run-whisper-faster: 
 	docker run --network=host fedirz/faster-whisper-server:latest-cuda

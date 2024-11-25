@@ -74,3 +74,48 @@ jobs:
       - name: Stop containers
         run: |
           docker stop $(docker ps -q)
+
+  coverage:
+    name: Coverage 
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build whisper container image
+        run: |
+          make build-whisper-container
+
+      - name: Run whisper container image
+        run: |
+          DETACHED="-d" make run-whisper
+
+      - name: Install cargo-llvm-cov
+        run: |
+          cargo install cargo-llvm-cov
+      
+      - name: Install library
+        run: |
+          sudo mkdir -p /usr/local/lib
+          sudo cp ./ohttp-server/libazguestattestation.so.1.0.5 /usr/bin/
+          sudo ln -s /usr/bin/libazguestattestation.so.1.0.5 /usr/lib/libazguestattestation.so.1
+          sudo ln -s /usr/bin/libazguestattestation.so.1.0.5 /usr/lib/libazguestattestation.so
+          sudo ldconfig
+
+      - name: Generate coverage report
+        run: |
+          ./scripts/service_wait.sh 127.0.0.1:3000
+          RUST_LOG=info cargo llvm-cov --cobertura --output-path target/cobertura.xml -- --test non_cvm --test-threads=1
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: target/cobertura.xml
+
+      - name: Stop containers
+        run: |
+          docker stop $(docker ps -q)
