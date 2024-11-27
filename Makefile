@@ -45,7 +45,7 @@ run-server-container-cvm:
 # Whisper deployments
 
 run-whisper:
-	docker run --network=host whisper-api 
+	docker run ${DETACHED} --network=host whisper-api 
 
 run-whisper-faster: 
 	docker run --network=host fedirz/faster-whisper-server:latest-cuda

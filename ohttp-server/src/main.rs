@@ -513,8 +513,25 @@ async fn discover(args: Arc<Args>) -> Result<impl warp::Reply, std::convert::Inf
     }
 }
 
-#[tokio::main]
-async fn main() -> Res<()> {
+async fn cache_local_config() -> Res<()> {
+    let config = KeyConfig::new(
+        0,
+        Kem::P384Sha384,
+        vec![
+            SymmetricSuite::new(Kdf::HkdfSha384, Aead::Aes256Gcm),
+            SymmetricSuite::new(Kdf::HkdfSha256, Aead::Aes128Gcm),
+            SymmetricSuite::new(Kdf::HkdfSha256, Aead::ChaCha20Poly1305),
+        ],
+    )
+    .map_err(|e| {
+        error!("{e}");
+        e
+    })?;
+    cache.insert(0, (config, String::new())).await;
+    Ok(())
+}
+
+fn init() {
     // Build a simple subscriber that outputs to stdout
     let subscriber = FmtSubscriber::builder()
         .with_env_filter(EnvFilter::from_default_env())
@@ -528,26 +545,21 @@ async fn main() -> Res<()> {
     // Set the subscriber as global default
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
     ::ohttp::init();
+}
+
+#[tokio::main]
+async fn main() -> Res<()> {
+    init();
 
     let args = Args::parse();
     let address = args.address;
 
     // Generate a fresh key for local testing. KID is set to 0.
     if args.local_key {
-        let config = KeyConfig::new(
-            0,
-            Kem::P384Sha384,
-            vec![
-                SymmetricSuite::new(Kdf::HkdfSha384, Aead::Aes256Gcm),
-                SymmetricSuite::new(Kdf::HkdfSha256, Aead::Aes128Gcm),
-                SymmetricSuite::new(Kdf::HkdfSha256, Aead::ChaCha20Poly1305),
-            ],
-        )
-        .map_err(|e| {
+        cache_local_config().await.map_err(|e| {
             error!("{e}");
             e
         })?;
-        cache.insert(0, (config, String::new())).await;
     }
 
     let argsc = Arc::new(args);
@@ -572,4 +584,98 @@ async fn main() -> Res<()> {
     warp::serve(routes).run(address).await;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod general_purpose_tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use ohttp_client::{HexArg, OhttpClientBuilder};
+    use std::str::FromStr;
+
+    #[tokio::test]
+    async fn local_test() {
+        init();
+        info!("local_test --------------------------------------------");
+
+        let args = Arc::new(Args {
+            address: "127.0.0.1:9443".parse().unwrap(),
+            indeterminate: false,
+            target: "http://127.0.0.1:3000".parse().unwrap(),
+            local_key: true,
+            maa_url: None,
+            kms_url: None,
+            inject_request_headers: vec![],
+        });
+
+        cache_local_config().await.unwrap();
+
+        let args1 = Arc::clone(&args);
+        let score = warp::post()
+            .and(warp::path::path("score"))
+            .and(warp::path::end())
+            .and(warp::header::headers_cloned())
+            .and(warp::body::bytes())
+            .and(warp::any().map(move || Arc::clone(&args1)))
+            .and(warp::any().map(Uuid::new_v4))
+            .and_then(score);
+
+        let args2 = Arc::clone(&args);
+        let discover = warp::get()
+            .and(warp::path("discover"))
+            .and(warp::path::end())
+            .and(warp::any().map(move || Arc::clone(&args2)))
+            .and_then(discover);
+
+        let routes = score.or(discover);
+
+        let (_, server) =
+            warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 9443), async {
+                // Never reached in this test, but needed for the structure
+                std::future::pending::<()>().await;
+            });
+
+        tokio::spawn(server);
+
+        // Client test
+        let client = reqwest::Client::new();
+        let response = client
+            .get("http://localhost:9443/discover")
+            .send()
+            .await
+            .expect("Failed to send request");
+
+        assert_eq!(response.status(), 200);
+        let body = response.text().await.expect("Failed to read response");
+        info!("body = {body}");
+
+        let hex_arg = HexArg::from_str(&body).expect("Invalid hex string");
+        let ohttp_client = OhttpClientBuilder::new()
+            .config(&Some(hex_arg))
+            .build()
+            .await
+            .unwrap();
+
+        let url = String::from("http://localhost:9443/score");
+        let target_path = String::from("/whisper");
+        let headers: Vec<String> = vec![];
+        let form_fields: Vec<String> = vec![String::from("file=@../examples/audio.mp3")];
+        let outer_headers: Vec<String> = vec![];
+        let mut response = ohttp_client
+            .post(&url, &target_path, &headers, &form_fields, &outer_headers)
+            .await
+            .unwrap();
+
+        let status = response.status();
+        info!("status: {status}");
+        assert!(status.is_success());
+
+        while let Some(chunk) = response.chunk().await.unwrap() {
+            let chunk = std::str::from_utf8(&chunk).unwrap();
+            info!("{chunk}");
+        }
+
+        // Server will automatically shut down when this test ends
+    }
 }
