@@ -366,7 +366,13 @@ async fn score(
     info!("Received encapsulated score request for target {}", target);
 
     info!("Request headers length = {}", headers.len());
-    let return_token = headers.contains_key("x-attestation-token");
+    for (key, value) in &headers {
+        info!(
+            "    {}: {}",
+            key,
+            std::str::from_utf8(value.as_bytes()).unwrap()
+        );
+    }
 
     // The KID is normally the first byte of the request
     let kid = match body.first().copied() {
@@ -442,6 +448,7 @@ async fn score(
         warp::http::Response::builder().header("Content-Type", "message/ohttp-chunked-res");
 
     // Add HTTP header with MAA token, for client auditing.
+    let return_token = headers.contains_key("x-attestation-token");
     if return_token {
         builder = builder.header(
             HeaderName::from_static("x-attestation-token"),
