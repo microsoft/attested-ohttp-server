@@ -612,6 +612,8 @@ mod tests {
         let default_guard = tracing::subscriber::set_default(subscriber);
         ::ohttp::init();
 
+        cache.invalidate_all();
+        
         default_guard
     }
 
