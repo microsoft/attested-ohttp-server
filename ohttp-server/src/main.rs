@@ -706,7 +706,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn non_cvm_basic() {
+    async fn local_test_basic() {
         let _default_guard = init_test();
 
         let mut args = create_args();
@@ -758,7 +758,7 @@ mod tests {
 
     #[tokio::test]
     // Invalid discover endpoint for local testing
-    async fn non_cvm_fail1() {
+    async fn local_test_invalid_discover_endpoint() {
         let _default_guard = init_test();
 
         let mut args = create_args();
@@ -783,7 +783,7 @@ mod tests {
 
     #[tokio::test]
     // Invalid client config for local testing
-    async fn non_cvm_fail2() {
+    async fn local_test_invalid_client_config() {
         let _default_guard = init_test();
 
         let hex_arg = None;
@@ -793,7 +793,7 @@ mod tests {
 
     #[tokio::test]
     // Invalid client paramaters for local testing
-    async fn non_cvm_fail3() {
+    async fn local_test_invalid_client_paramaters() {
         let _default_guard = init_test();
 
         let mut args = create_args();
@@ -874,40 +874,62 @@ mod tests {
         "https://accconfinferenceprod.confidential-ledger.azure.com/app/key";
     const DEFAULT_MAA_URL: &str = "https://maanosecureboottestyfu.eus.attest.azure.net";
 
-    use std::{path::PathBuf, process::Command};
+    use std::{fs::File, io::Write, path::PathBuf};
 
-    fn get_kms_cert() -> Option<PathBuf> {
-        // Execute the curl command
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg("curl -s -k https://accconfinferenceprod.confidential-ledger.azure.com/node/network | jq -r .service_certificate > service_cert.pem")
-            .output()
-            .expect("Failed to execute command");
+    async fn get_kms_cert() -> Option<PathBuf> {
+        let client = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true) // Equivalent to -k in curl
+            .build()
+            .expect("reqwest::Client::builder() failed");
 
-        if !output.status.success() {
-            error!(
-                "Command failed, stderr: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            return None;
+        let response = client
+            .get("https://accconfinferenceprod.confidential-ledger.azure.com/node/network")
+            .send()
+            .await
+            .expect("reqwest::Client::get() failed");
+
+        let body: Value = response.json().await.expect("Failed to read response");
+        info!("body = {:?}", body);
+
+        // Accessing the "name" field
+        if let Value::Map(map) = body {
+            for (key, value) in map {
+                if let Value::Text(key_str) = key {
+                    info!("Key: {}", key_str);
+                    if key_str == "service_certificate" {
+                        if let Value::Text(value_str) = value {
+                            info!("service_certificate: {}", value_str);
+
+                            // Write the result to a file
+                            let mut file =
+                                File::create("service_cert.pem").expect("Failed to create file");
+                            file.write_all(value_str.as_bytes())
+                                .expect("Failed to write to file");
+
+                            info!("Certificate written to service_cert.pem");
+
+                            // Convert the file name to PathBuf
+                            let path = PathBuf::from("service_cert.pem");
+
+                            // Check if the file exists
+                            if path.exists() {
+                                info!("Successfully created file at: {:?}", path);
+                                return Some(path);
+                            }
+
+                            error!("Failed to find the file at: {:?}", path);
+                        }
+                    }
+                }
+            }
+            error!("service_certificate not found or not in expected format");
         }
 
-        // Convert the file name to PathBuf
-        let path = PathBuf::from("service_cert.pem");
-
-        // Check if the file exists
-        if path.exists() {
-            info!("Successfully created file at: {:?}", path);
-        } else {
-            error!("Failed to find the file at: {:?}", path);
-            return None;
-        }
-
-        Some(path)
+        None
     }
 
     #[tokio::test]
-    async fn cvm_test_basic() {
+    async fn kms_test_basic() {
         let _default_guard = init_test();
 
         let mut args = create_args();
@@ -920,7 +942,7 @@ mod tests {
         let (server_handle, shutdown_channel_sender) = start_server(&args);
 
         let kms_url = Some(String::from(DEFAULT_KMS_URL_CLIENT));
-        let kms_cert = get_kms_cert();
+        let kms_cert = get_kms_cert().await;
         let ohttp_client = OhttpClientBuilder::new()
             .kms_url(&kms_url)
             .kms_cert(&kms_cert)
@@ -960,11 +982,11 @@ mod tests {
 
     #[tokio::test]
     // Invalid kms url set for client
-    async fn cvm_test_fail1() {
+    async fn kms_test_invalid_kms_url() {
         let _default_guard = init_test();
 
         let kms_url = Some(String::from(DEFAULT_KMS_URL_CLIENT_INVALID));
-        let kms_cert = get_kms_cert();
+        let kms_cert = get_kms_cert().await;
         if OhttpClientBuilder::new()
             .kms_url(&kms_url)
             .kms_cert(&kms_cert)
@@ -981,7 +1003,7 @@ mod tests {
 
     #[tokio::test]
     // mismatched KMS for client and server
-    async fn cvm_test_fail2() {
+    async fn kms_test_mismatched_kms_url() {
         let _default_guard = init_test();
 
         let mut args = create_args();
@@ -994,7 +1016,7 @@ mod tests {
         let (server_handle, shutdown_channel_sender) = start_server(&args);
 
         let kms_url = Some(String::from(DEFAULT_KMS_URL_CLIENT));
-        let kms_cert = get_kms_cert();
+        let kms_cert = get_kms_cert().await;
         let ohttp_client = OhttpClientBuilder::new()
             .kms_url(&kms_url)
             .kms_cert(&kms_cert)
