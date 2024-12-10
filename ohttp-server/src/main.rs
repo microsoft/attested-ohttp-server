@@ -791,6 +791,35 @@ mod tests {
         assert!(client.is_err());
     }
 
+    fn get_service_cert_path_from_str(cart_value: &str) -> Option<PathBuf> {
+        // Write the result to a file
+        let mut file = File::create("service_cert.pem").expect("Failed to create file");
+        file.write_all(cart_value.as_bytes())
+            .expect("Failed to write to file");
+
+        info!("Certificate written to service_cert.pem");
+
+        // Convert the file name to PathBuf
+        let path = PathBuf::from("service_cert.pem");
+
+        // Check if the file exists
+        if path.exists() {
+            info!("Successfully created file at: {:?}", path);
+            return Some(path);
+        }
+
+        error!("Failed to find the file at: {:?}", path);
+
+        let path = PathBuf::from(cart_value);
+        if path.exists() {
+            info!("Successfully created file at: {:?}", path);
+            return Some(path);
+        }
+
+        error!("Failed to find the file at: {:?}", path);
+        None
+    }
+
     #[tokio::test]
     // Invalid client paramaters for local testing
     async fn local_test_invalid_client_paramaters() {
@@ -891,7 +920,7 @@ mod tests {
         let body: Value = response.json().await.expect("Failed to read response");
         info!("body = {:?}", body);
 
-        // Accessing the "name" field
+        // Accessing the "service_certificate" field
         if let Value::Map(map) = body {
             for (key, value) in map {
                 if let Value::Text(key_str) = key {
@@ -900,24 +929,7 @@ mod tests {
                         if let Value::Text(value_str) = value {
                             info!("service_certificate: {}", value_str);
 
-                            // Write the result to a file
-                            let mut file =
-                                File::create("service_cert.pem").expect("Failed to create file");
-                            file.write_all(value_str.as_bytes())
-                                .expect("Failed to write to file");
-
-                            info!("Certificate written to service_cert.pem");
-
-                            // Convert the file name to PathBuf
-                            let path = PathBuf::from("service_cert.pem");
-
-                            // Check if the file exists
-                            if path.exists() {
-                                info!("Successfully created file at: {:?}", path);
-                                return Some(path);
-                            }
-
-                            error!("Failed to find the file at: {:?}", path);
+                            return get_service_cert_path_from_str(&value_str);
                         }
                     }
                 }
