@@ -587,31 +587,54 @@ async fn main() -> Res<()> {
 }
 
 #[cfg(test)]
-mod general_purpose_tests {
-    use std::path::PathBuf;
-
+mod tests {
     use super::*;
     use ohttp_client::{HexArg, OhttpClientBuilder};
     use std::str::FromStr;
+    use tokio::sync::mpsc;
+    use tracing::subscriber::DefaultGuard;
+    use warp::Filter;
 
-    #[tokio::test]
-    async fn local_test() {
-        init();
-        info!("local_test --------------------------------------------");
+    const OHTTP_ADDRESS: &str = "127.0.0.1:9443";
 
-        let args = Arc::new(Args {
-            address: "127.0.0.1:9443".parse().unwrap(),
+    fn init_test() -> DefaultGuard {
+        // Build a simple subscriber that outputs to stdout
+        let subscriber = FmtSubscriber::builder()
+            .with_env_filter(EnvFilter::from_default_env())
+            .with_file(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_span_events(FmtSpan::NEW)
+            .json()
+            .finish();
+
+        // Set the subscriber as global default
+        let default_guard = tracing::subscriber::set_default(subscriber);
+        ::ohttp::init();
+
+        cache.invalidate_all();
+
+        default_guard
+    }
+
+    fn create_args() -> Arc<Args> {
+        Arc::new(Args {
+            address: OHTTP_ADDRESS.parse().unwrap(),
             indeterminate: false,
             target: "http://127.0.0.1:3000".parse().unwrap(),
-            local_key: true,
+            local_key: false,
             maa_url: None,
             kms_url: None,
             inject_request_headers: vec![],
-        });
+        })
+    }
 
-        cache_local_config().await.unwrap();
+    const URL_SCORE: &str = "http://localhost:9443/score";
+    const TARGET_PATH: &str = "/whisper";
+    const URL_DISCOVER: &str = "http://localhost:9443/discover";
 
-        let args1 = Arc::clone(&args);
+    fn start_server(args: &Arc<Args>) -> (tokio::task::JoinHandle<()>, mpsc::Sender<()>) {
+        let args1 = Arc::clone(args);
         let score = warp::post()
             .and(warp::path::path("score"))
             .and(warp::path::end())
@@ -621,7 +644,7 @@ mod general_purpose_tests {
             .and(warp::any().map(Uuid::new_v4))
             .and_then(score);
 
-        let args2 = Arc::clone(&args);
+        let args2 = Arc::clone(args);
         let discover = warp::get()
             .and(warp::path("discover"))
             .and(warp::path::end())
@@ -630,52 +653,404 @@ mod general_purpose_tests {
 
         let routes = score.or(discover);
 
-        let (_, server) =
-            warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 9443), async {
-                // Never reached in this test, but needed for the structure
-                std::future::pending::<()>().await;
+        let (shutdown_channel_sender, mut shutdown_channel_receiver) = mpsc::channel::<()>(1);
+
+        let (addr, server) =
+            warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 9443), async move {
+                shutdown_channel_receiver
+                    .recv()
+                    .await
+                    .expect("Failed to send request"); // Wait for shutdown signal
             });
 
-        tokio::spawn(server);
+        info!("Server started at: {}", addr);
 
-        // Client test
+        // Spawn the server as a separate task
+        let server_handle = tokio::spawn(server);
+
+        (server_handle, shutdown_channel_sender)
+    }
+
+    async fn get_config_from_discover_endpoint(url: &str) -> Option<HexArg> {
         let client = reqwest::Client::new();
         let response = client
-            .get("http://localhost:9443/discover")
+            .get(url)
             .send()
             .await
             .expect("Failed to send request");
 
-        assert_eq!(response.status(), 200);
+        if url == URL_DISCOVER {
+            assert_eq!(response.status(), 200);
+        } else {
+            assert_ne!(response.status(), 200);
+            return None;
+        }
+
         let body = response.text().await.expect("Failed to read response");
         info!("body = {body}");
 
-        let hex_arg = HexArg::from_str(&body).expect("Invalid hex string");
+        Some(HexArg::from_str(&body).expect("Invalid hex string"))
+    }
+
+    async fn shutdown_server(
+        server_handle: tokio::task::JoinHandle<()>,
+        shutdown_channel_sender: mpsc::Sender<()>,
+    ) {
+        shutdown_channel_sender
+            .send(())
+            .await
+            .expect("Could not send shutdown signal");
+
+        // Wait for the server to shut down
+        server_handle.await.expect("Waiting for server failed");
+    }
+
+    #[tokio::test]
+    async fn local_test_basic() {
+        let _default_guard = init_test();
+
+        let mut args = create_args();
+
+        if let Some(args_mut) = Arc::get_mut(&mut args) {
+            args_mut.local_key = true;
+        }
+
+        cache_local_config()
+            .await
+            .expect("Could not cache local config");
+
+        let (server_handle, shutdown_channel_sender) = start_server(&args);
+
+        let hex_arg = get_config_from_discover_endpoint(URL_DISCOVER).await;
+
         let ohttp_client = OhttpClientBuilder::new()
-            .config(&Some(hex_arg))
+            .config(&hex_arg)
             .build()
             .await
-            .unwrap();
+            .expect("Could not create new ohttp client builder");
 
-        let url = String::from("http://localhost:9443/score");
-        let target_path = String::from("/whisper");
+        let url: String = URL_SCORE.to_string();
+        let target_path: String = TARGET_PATH.to_string();
         let headers: Vec<String> = vec![];
         let form_fields: Vec<String> = vec![String::from("file=@../examples/audio.mp3")];
         let outer_headers: Vec<String> = vec![];
+
         let mut response = ohttp_client
             .post(&url, &target_path, &headers, &form_fields, &outer_headers)
             .await
-            .unwrap();
+            .expect("Could not post to scoring endpoint");
 
         let status = response.status();
         info!("status: {status}");
         assert!(status.is_success());
 
-        while let Some(chunk) = response.chunk().await.unwrap() {
-            let chunk = std::str::from_utf8(&chunk).unwrap();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .expect("Could not get chunked response")
+        {
+            let chunk = std::str::from_utf8(&chunk).expect("Could not get chunk");
             info!("{chunk}");
         }
 
-        // Server will automatically shut down when this test ends
+        shutdown_server(server_handle, shutdown_channel_sender).await;
+    }
+
+    #[tokio::test]
+    // Invalid discover endpoint for local testing
+    async fn local_test_invalid_discover_endpoint() {
+        let _default_guard = init_test();
+
+        let mut args = create_args();
+
+        if let Some(args_mut) = Arc::get_mut(&mut args) {
+            args_mut.local_key = true;
+        }
+
+        cache_local_config()
+            .await
+            .expect("Could not cache local config");
+
+        let (server_handle, shutdown_channel_sender) = start_server(&args);
+
+        let url = "http://localhost:9443/discovery";
+        let response = get_config_from_discover_endpoint(url).await;
+        if response.is_some() {
+            unreachable!("This should never happen!");
+        }
+        shutdown_server(server_handle, shutdown_channel_sender).await;
+    }
+
+    #[tokio::test]
+    // Invalid client config for local testing
+    async fn local_test_invalid_client_config() {
+        let _default_guard = init_test();
+
+        let hex_arg = None;
+        let client = OhttpClientBuilder::new().config(&hex_arg).build().await;
+        assert!(client.is_err());
+    }
+
+    fn get_service_cert_path_from_str(cart_value: &str) -> Option<PathBuf> {
+        // Write the result to a file
+        let mut file = File::create("service_cert.pem").expect("Failed to create file");
+        file.write_all(cart_value.as_bytes())
+            .expect("Failed to write to file");
+
+        info!("Certificate written to service_cert.pem");
+
+        // Convert the file name to PathBuf
+        let path = PathBuf::from("service_cert.pem");
+
+        // Check if the file exists
+        if path.exists() {
+            info!("Successfully created file at: {:?}", path);
+            return Some(path);
+        }
+
+        error!("Failed to find the file at: {:?}", path);
+
+        let path = PathBuf::from(cart_value);
+        if path.exists() {
+            info!("Successfully created file at: {:?}", path);
+            return Some(path);
+        }
+
+        error!("Failed to find the file at: {:?}", path);
+        None
+    }
+
+    #[tokio::test]
+    // Invalid client paramaters for local testing
+    async fn local_test_invalid_client_paramaters() {
+        let _default_guard = init_test();
+
+        let mut args = create_args();
+
+        if let Some(args_mut) = Arc::get_mut(&mut args) {
+            args_mut.local_key = true;
+        }
+
+        cache_local_config()
+            .await
+            .expect("Could not cache local config");
+
+        let (server_handle, shutdown_channel_sender) = start_server(&args);
+
+        let hex_arg = get_config_from_discover_endpoint(URL_DISCOVER).await;
+
+        let ohttp_client = OhttpClientBuilder::new()
+            .config(&hex_arg)
+            .build()
+            .await
+            .expect("Could not create new ohttp client builder");
+
+        let mut url: String = "http://localhost:9443/scoreee".to_string();
+        let mut target_path: String = TARGET_PATH.to_string();
+        let headers: Vec<String> = vec![];
+        let mut form_fields: Vec<String> = vec![String::from("file=@../examples/audio.mp3")];
+        let outer_headers: Vec<String> = vec![];
+
+        let mut response = ohttp_client
+            .post(&url, &target_path, &headers, &form_fields, &outer_headers)
+            .await
+            .unwrap();
+        let status = response.status();
+        info!("status: {status}");
+        assert!(!status.is_success());
+
+        let ohttp_client = OhttpClientBuilder::new()
+            .config(&hex_arg)
+            .build()
+            .await
+            .expect("Could not create new ohttp client builder");
+
+        url = URL_SCORE.to_string();
+        target_path = "/whisperrr".to_string();
+
+        response = ohttp_client
+            .post(&url, &target_path, &headers, &form_fields, &outer_headers)
+            .await
+            .expect("Could not post to scoring endpoint");
+
+        let status = response.status();
+        info!("status: {status}");
+        assert!(!status.is_success());
+
+        let ohttp_client = OhttpClientBuilder::new()
+            .config(&hex_arg)
+            .build()
+            .await
+            .expect("Could not create new ohttp client builder");
+
+        target_path = TARGET_PATH.to_string();
+        form_fields = vec![String::from("file=@../examples/audioo.mp3")];
+
+        if ohttp_client
+            .post(&url, &target_path, &headers, &form_fields, &outer_headers)
+            .await
+            .is_ok()
+        {
+            panic!("This should never happen!");
+        }
+
+        shutdown_server(server_handle, shutdown_channel_sender).await;
+    }
+
+    const DEFAULT_KMS_URL_CLIENT: &str =
+        "https://accconfinferenceprod.confidential-ledger.azure.com";
+    const DEFAULT_KMS_URL_SERVER: &str =
+        "https://accconfinferenceprod.confidential-ledger.azure.com/app/key";
+    const DEFAULT_MAA_URL: &str = "https://maanosecureboottestyfu.eus.attest.azure.net";
+
+    use std::{fs::File, io::Write, path::PathBuf};
+
+    async fn get_kms_cert() -> Option<PathBuf> {
+        let client = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true) // Equivalent to -k in curl
+            .build()
+            .expect("reqwest::Client::builder() failed");
+
+        let response = client
+            .get("https://accconfinferenceprod.confidential-ledger.azure.com/node/network")
+            .send()
+            .await
+            .expect("reqwest::Client::get() failed");
+
+        let body: Value = response.json().await.expect("Failed to read response");
+        info!("body = {:?}", body);
+
+        // Accessing the "service_certificate" field
+        if let Value::Map(map) = body {
+            for (key, value) in map {
+                if let Value::Text(key_str) = key {
+                    info!("Key: {}", key_str);
+                    if key_str == "service_certificate" {
+                        if let Value::Text(value_str) = value {
+                            info!("service_certificate: {}", value_str);
+
+                            return get_service_cert_path_from_str(&value_str);
+                        }
+                    }
+                }
+            }
+            error!("service_certificate not found or not in expected format");
+        }
+
+        None
+    }
+
+    #[tokio::test]
+    async fn kms_test_basic() {
+        let _default_guard = init_test();
+
+        let mut args = create_args();
+
+        if let Some(args_mut) = Arc::get_mut(&mut args) {
+            args_mut.maa_url = Some(String::from(DEFAULT_MAA_URL));
+            args_mut.kms_url = Some(String::from(DEFAULT_KMS_URL_SERVER));
+        }
+
+        let (server_handle, shutdown_channel_sender) = start_server(&args);
+
+        let kms_url = Some(String::from(DEFAULT_KMS_URL_CLIENT));
+        let kms_cert = get_kms_cert().await;
+        let ohttp_client = OhttpClientBuilder::new()
+            .kms_url(&kms_url)
+            .kms_cert(&kms_cert)
+            .build()
+            .await
+            .expect("Could not create new ohttp client builder");
+
+        let url: String = URL_SCORE.to_string();
+        let target_path: String = TARGET_PATH.to_string();
+        let headers: Vec<String> = vec![];
+        let form_fields: Vec<String> = vec![String::from("file=@../examples/audio.mp3")];
+        let outer_headers: Vec<String> = vec![];
+
+        let mut response = ohttp_client
+            .post(&url, &target_path, &headers, &form_fields, &outer_headers)
+            .await
+            .expect("Could not post to scoring endpoint");
+
+        let status = response.status();
+        info!("status: {status}");
+        assert!(status.is_success());
+
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .expect("Could not get chunked response")
+        {
+            let chunk = std::str::from_utf8(&chunk).expect("Could not get chunk");
+            info!("{chunk}");
+        }
+
+        shutdown_server(server_handle, shutdown_channel_sender).await;
+    }
+
+    const DEFAULT_KMS_URL_CLIENT_INVALID: &str =
+        "https://accconfinferenceprodbad.confidential-ledger.azure.com";
+
+    #[tokio::test]
+    // Invalid kms url set for client
+    async fn kms_test_invalid_kms_url() {
+        let _default_guard = init_test();
+
+        let kms_url = Some(String::from(DEFAULT_KMS_URL_CLIENT_INVALID));
+        let kms_cert = get_kms_cert().await;
+        if OhttpClientBuilder::new()
+            .kms_url(&kms_url)
+            .kms_cert(&kms_cert)
+            .build()
+            .await
+            .is_ok()
+        {
+            panic!("This should never happen!")
+        }
+    }
+
+    const KMS_URL_SERVER_DEBUG: &str =
+        "https://accconfinferencedebug.confidential-ledger.azure.com/app/key";
+
+    #[tokio::test]
+    // mismatched KMS for client and server
+    async fn kms_test_mismatched_kms_url() {
+        let _default_guard = init_test();
+
+        let mut args = create_args();
+
+        if let Some(args_mut) = Arc::get_mut(&mut args) {
+            args_mut.maa_url = Some(String::from(DEFAULT_MAA_URL));
+            args_mut.kms_url = Some(String::from(KMS_URL_SERVER_DEBUG));
+        }
+
+        let (server_handle, shutdown_channel_sender) = start_server(&args);
+
+        let kms_url = Some(String::from(DEFAULT_KMS_URL_CLIENT));
+        let kms_cert = get_kms_cert().await;
+        let ohttp_client = OhttpClientBuilder::new()
+            .kms_url(&kms_url)
+            .kms_cert(&kms_cert)
+            .build()
+            .await
+            .expect("Could not create new ohttp client builder");
+
+        let url: String = URL_SCORE.to_string();
+        let target_path: String = TARGET_PATH.to_string();
+        let headers: Vec<String> = vec![];
+        let form_fields: Vec<String> = vec![String::from("file=@../examples/audio.mp3")];
+        let outer_headers: Vec<String> = vec![];
+
+        let response = ohttp_client
+            .post(&url, &target_path, &headers, &form_fields, &outer_headers)
+            .await
+            .expect("Could not post to scoring endpoint");
+
+        let status = response.status();
+        info!("status: {status}");
+        assert!(!status.is_success());
+
+        shutdown_server(server_handle, shutdown_channel_sender).await;
     }
 }
