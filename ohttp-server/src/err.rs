@@ -21,4 +21,10 @@ pub enum ServerError {
     KMSUnreachable,
     #[error("Private key missing from SKR response")]
     PrivateKeyMissing,
+    #[error("CVM guest attestation library initialization failure")]
+    AttestationLibraryInit,
+    #[error("Guest attestation library failed to decrypt HPKE private key")]
+    TPMDecryptionFailure,
+    #[error("SKR for the requested KID has failed in the past 60 seconds, waiting to retry.")]
+    CachedSKRError,
 }

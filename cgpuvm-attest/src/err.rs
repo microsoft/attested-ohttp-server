@@ -5,8 +5,10 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AttestError {
+    #[error("Failed to initialize CVM guest attestation libray. You must be root to access TPM.")]
+    Initialization,
     #[error("Failed to convert endpoint URL to CString")]
     Convertion,
-    #[error("CVM guest attestation library returned error: {0}")]
-    MAAToken(i32),
+    #[error("CVM guest attestation library error: {0}")]
+    LibraryError(i32),
 }

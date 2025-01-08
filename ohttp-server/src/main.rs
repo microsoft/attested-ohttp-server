@@ -18,6 +18,8 @@ use reqwest::{
 
 use bhttp::{Message, Mode};
 use clap::Parser;
+use base64::{Engine as _, engine::general_purpose::STANDARD as b64};
+
 use ohttp::{
     hpke::{Aead, Kdf, Kem},
     Error, KeyConfig, Server as OhttpServer, ServerResponse, SymmetricSuite,
@@ -26,7 +28,7 @@ use warp::{hyper::Body, Filter};
 
 use tokio::time::{sleep, Duration};
 
-use cgpuvm_attest::attest;
+use cgpuvm_attest::AttestationClient;
 use reqwest::Client;
 
 type Res<T> = Result<T, Box<dyn std::error::Error>>;
@@ -42,8 +44,6 @@ use tracing::{error, info, instrument, trace};
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter, FmtSubscriber};
 use uuid::Uuid;
 
-const VERSION: &str = "1.0.0";
-
 #[derive(Deserialize)]
 struct ExportedKey {
     kid: u8,
@@ -51,6 +51,8 @@ struct ExportedKey {
     receipt: String,
 }
 
+const VERSION: &str = "1.0.0";
+const KID_NOT_FOUND_RETRY_TIMER : u64 = 60;
 const DEFAULT_KMS_URL: &str = "https://accconfinferencedebug.confidential-ledger.azure.com/app/key";
 const DEFAULT_MAA_URL: &str = "https://maanosecureboottestyfu.eus.attest.azure.net";
 const FILTERED_RESPONSE_HEADERS: [&str; 2] = ["content-type", "content-length"];
@@ -96,19 +98,29 @@ impl Args {
     }
 }
 
-lazy_static! {
-    static ref cache: Arc<Cache<u8, (KeyConfig, String)>> = Arc::new(
-        Cache::builder()
-            .time_to_live(Duration::from_secs(24 * 60 * 60))
-            .build()
-    );
+// We cache both successful key releases from the KMS as well as SKR errors,
+// as guest attestation is very expensive (IMDS + TPM createPrimary + RSA decrypt x2)
+// ValidKey expire based on the TTL of the cache (24 hours)
+// SKRError are manually invalidated (see import_config), after 60 seconds
+#[derive(Clone)]
+enum CachedKey {
+    ValidKey(KeyConfig, String),
+    SKRError(std::time::SystemTime)
 }
 
-fn parse_cbor_key(key: &str, kid: u8) -> Res<(Option<Vec<u8>>, u8)> {
-    let cwk = hex::decode(key)?;
-    let cwk_map: Value = serde_cbor::from_slice(&cwk)?;
+// Lazily initialized shared globals
+lazy_static! {
+    // Key cache for Oblivious HTTP, by key id
+    static ref cache : Arc<Cache<u8, CachedKey>> = Arc::new(Cache::builder()
+        .time_to_live(Duration::from_secs(24 * 60 * 60))
+        .build());
+}
+
+fn parse_cbor_key(key: &[u8], kid: u8) -> Res<(Option<Vec<u8>>, u8)> {
+    let cwk_map: Value = serde_cbor::from_slice(&key)?;
     let mut d = None;
     let mut returned_kid: u8 = 0;
+
     if let Value::Map(map) = cwk_map {
         for (key, value) in map {
             if let Value::Integer(key) = key {
@@ -157,18 +169,6 @@ fn parse_cbor_key(key: &str, kid: u8) -> Res<(Option<Vec<u8>>, u8)> {
     Ok((d, returned_kid))
 }
 
-/// Fetches the MAA token from the CVM guest attestation library.
-///
-fn fetch_maa_token(maa: &str) -> Res<String> {
-    // Get MAA token from CVM guest attestation library
-    info!("Fetching MAA token from {maa}");
-    let token = attest("{}".as_bytes(), 0xffff, maa)?;
-
-    let token = String::from_utf8(token).unwrap();
-    trace!("{token}");
-    Ok(token)
-}
-
 /// Retrieves the HPKE private key from Azure KMS.
 ///
 async fn get_hpke_private_key_from_kms(kms: &str, kid: u8, token: &str) -> Res<String> {
@@ -181,7 +181,7 @@ async fn get_hpke_private_key_from_kms(kms: &str, kid: u8, token: &str) -> Res<S
     let mut retries = 0;
 
     loop {
-        let url = format!("{kms}?kid={kid}");
+        let url = format!("{kms}?kid={kid}&encrypted=true");
         info!("Sending SKR request to {url}");
 
         // Get HPKE private key from Azure KMS
@@ -231,17 +231,44 @@ async fn get_hpke_private_key_from_kms(kms: &str, kid: u8, token: &str) -> Res<S
     }
 }
 
+// Try to load an OHTTP key configuration from the cache, or from the KMS if not found
 async fn load_config(maa: &str, kms: &str, kid: u8) -> Res<(KeyConfig, String)> {
     // Check if the key configuration is in cache
-    if let Some((config, token)) = cache.get(&kid).await {
-        info!("Found OHTTP configuration for KID {kid} in cache.");
-        return Ok((config, token));
+    if let Some(entry) = cache.get(&kid).await {
+        match entry {
+            CachedKey::ValidKey(config, token) => {
+            info!("Found OHTTP configuration for KID {kid} in cache.");
+            return Ok((config,token));
+          },
+          CachedKey::SKRError(ts) => {
+            if ts.elapsed()? > Duration::from_secs(KID_NOT_FOUND_RETRY_TIMER) {
+                cache.invalidate(&kid).await;
+            } else {
+                Err(Box::new(ServerError::CachedSKRError))?
+            }
+          }
+        }
     }
 
-    // Get MAA token from CVM guest attestation library
-    let token = fetch_maa_token(maa)?;
+    let mut attest_cli = match AttestationClient::new() {
+        Ok(cli) => cli,
+        _ => Err(Box::new(ServerError::AttestationLibraryInit))?
+    };
+
+    let t = attest_cli.attest("{}".as_bytes(), 0xff, maa)?;
+    let token = String::from_utf8(t).unwrap();
+    info!("Fetched MAA token: {token}");
+
+    // The KMS returns the base64-encoded, RSA2048-OAEP-SHA256 encrypted CBOR key
     let key = get_hpke_private_key_from_kms(kms, kid, &token).await?;
-    let (d, returned_kid) = parse_cbor_key(&key, kid)?;
+    let enc_key = b64.decode(&key)?;
+
+    let decrypted_key = match attest_cli.decrypt(enc_key.as_slice()) {
+        Ok(k) => k,
+        _ => Err(Box::new(ServerError::TPMDecryptionFailure))?
+    };
+
+    let (d, returned_kid) = parse_cbor_key(&decrypted_key, kid)?;
 
     let sk = match d {
         Some(key) => <hpke::kem::DhP384HkdfSha384 as hpke::Kem>::PrivateKey::from_bytes(&key),
@@ -261,7 +288,7 @@ async fn load_config(maa: &str, kms: &str, kid: u8) -> Res<(KeyConfig, String)> 
         ],
     )?;
 
-    cache.insert(kid, (config.clone(), token.clone())).await;
+    cache.insert(kid, CachedKey::ValidKey(config.clone(), token.clone())).await;
     Ok((config, token))
 }
 
@@ -355,6 +382,18 @@ fn compute_injected_headers(headers: &HeaderMap, keys: Vec<String>) -> HeaderMap
     result
 }
 
+// Serialize Box<dyn StdError> as it lacks `Send` trait
+async fn load_config_safe(maa: &str, kms: &str, kid: u8) -> Result<(KeyConfig, String), String> {
+    match load_config(maa, kms, kid).await {
+        Ok(r) => Ok(r),
+        Err(e) => {
+            let err = format!("Error loading OHTTP key configuration {kid}: {e:?}");
+            error!("{err}");
+            Err(err)
+        }
+    }
+}
+
 #[instrument(skip(headers, body, args), fields(version = %VERSION))]
 async fn score(
     headers: warp::hyper::HeaderMap,
@@ -379,26 +418,31 @@ async fn score(
         }
         Some(kid) => kid,
     };
+
     let maa_url = args.maa_url.clone().unwrap_or(DEFAULT_MAA_URL.to_string());
     let kms_url = args.kms_url.clone().unwrap_or(DEFAULT_KMS_URL.to_string());
-    let (ohttp, token) = match load_config(&maa_url, &kms_url, kid).await {
+
+    
+    let (config, token) = match load_config_safe(&maa_url, &kms_url, kid).await {
+        Ok((config, token)) => (config, token),
+        Err(_e) => {
+            cache.insert(kid, CachedKey::SKRError(std::time::SystemTime::now())).await;
+            let error_msg = "Failed to load the requested OHTTP key identifier.";
+            return Ok(warp::http::Response::builder()
+                .status(500)
+                .body(Body::from(error_msg.as_bytes())));
+        }
+    };
+
+    let ohttp =  match OhttpServer::new(config) {
+        Ok(server) => server,
         Err(e) => {
-            let error_msg = "Failed to get or load OHTTP configuration.";
+            let error_msg = "Failed to create OHTTP server from config.";
             error!("{error_msg} {e}");
             return Ok(warp::http::Response::builder()
                 .status(500)
                 .body(Body::from(error_msg.as_bytes())));
         }
-        Ok((config, token)) => match OhttpServer::new(config) {
-            Ok(server) => (server, token),
-            Err(e) => {
-                let error_msg = "Failed to create OHTTP server from config.";
-                error!("{error_msg} {e}");
-                return Ok(warp::http::Response::builder()
-                    .status(500)
-                    .body(Body::from(error_msg.as_bytes())));
-            }
-        },
     };
 
     let inject_request_headers = args.inject_request_headers.clone();
@@ -522,12 +566,12 @@ async fn cache_local_config() -> Res<()> {
             SymmetricSuite::new(Kdf::HkdfSha256, Aead::Aes128Gcm),
             SymmetricSuite::new(Kdf::HkdfSha256, Aead::ChaCha20Poly1305),
         ],
-    )
-    .map_err(|e| {
+    ).map_err(|e| {
         error!("{e}");
         e
     })?;
-    cache.insert(0, (config, String::new())).await;
+
+    cache.insert(0, CachedKey::ValidKey(config, "<LOCALLY GENERATED KEY, NO ATTESTATION TOKEN>".to_owned())).await;
     Ok(())
 }
 
