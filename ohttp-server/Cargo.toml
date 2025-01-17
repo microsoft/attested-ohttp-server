@@ -12,6 +12,7 @@ rust-hpke = ["ohttp/rust-hpke"]
 [dependencies]
 env_logger = {version = "0.10", default-features = false}
 hex = "0.4"
+base64 = "0.22.1"
 lazy_static = "1.4"
 moka = { version = "0.12", features = ["future"] }
 tokio = { version = "1", features = ["full"] }
