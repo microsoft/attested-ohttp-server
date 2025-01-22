@@ -4,39 +4,100 @@
 pub mod err;
 
 use err::AttestError;
-use libc::{c_char, c_int, size_t};
+use libc::{c_char, c_int, c_void, size_t};
 use std::ffi::CString;
 
 type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
 #[link(name = "azguestattestation")]
 extern "C" {
-    fn get_attestation_token(
+    fn ga_create(ppAttestationClient: *mut *mut c_void) -> c_int;
+
+    fn ga_free(pAttestationClient: *mut c_void);
+
+    fn ga_get_token(
+        pAttestationClient: *mut c_void,
         app_data: *const u8,
-        pcr_sel: u32,
+        pcr: u32,
         jwt: *mut u8,
         jwt_len: *mut size_t,
         endpoint_url: *const c_char,
     ) -> c_int;
+
+    fn ga_decrypt(pAttestationClient: *mut c_void, cipher: *mut u8, len: *mut size_t) -> c_int;
 }
 
-pub fn attest(data: &[u8], pcrs: u32, endpoint_url: &str) -> Res<Vec<u8>> {
-    match CString::new(endpoint_url) {
-        Ok(endpoint_url_cstring) => unsafe {
-            let mut dstlen = 32 * 1024;
-            let mut dst = Vec::with_capacity(dstlen);
-            let pdst = dst.as_mut_ptr();
+pub struct AttestationClientManager {
+    p_attestation_client: *mut c_void,
+}
 
-            let url_ptr = endpoint_url_cstring.as_ptr();
+impl AttestationClientManager {
+    pub fn new() -> Res<AttestationClientManager> {
+        let mut manager = AttestationClientManager {
+            p_attestation_client: std::ptr::null_mut(),
+        };
 
-            let ret = get_attestation_token(data.as_ptr(), pcrs, pdst, &mut dstlen, url_ptr);
-            if ret == 0 {
-                dst.set_len(dstlen);
-                Ok(dst)
-            } else {
-                Err(Box::new(AttestError::MAAToken(ret)))
+        unsafe {
+            let rc = ga_create(&mut manager.p_attestation_client);
+            if rc == 0 {
+                return Ok(manager);
             }
-        },
-        _e => Err(Box::new(AttestError::Convertion)),
+
+            return Err(Box::new(AttestError::Initialization));
+        }
+    }
+
+    pub fn attest(&mut self, data: &[u8], pcrs: u32, endpoint_url: &str) -> Res<Vec<u8>> {
+        match CString::new(endpoint_url) {
+            Ok(endpoint_url_cstring) => unsafe {
+                let mut dstlen = 32 * 1024;
+                let mut dst = Vec::with_capacity(dstlen);
+                let pdst = dst.as_mut_ptr();
+
+                let url_ptr = endpoint_url_cstring.as_ptr();
+
+                let rc = ga_get_token(
+                    self.p_attestation_client,
+                    data.as_ptr(),
+                    pcrs,
+                    pdst,
+                    &mut dstlen,
+                    url_ptr,
+                );
+
+                if rc == 0 {
+                    dst.set_len(dstlen);
+                    return Ok(dst);
+                }
+
+                Err(Box::new(AttestError::LibraryError(rc)))
+            },
+            _ => Err(Box::new(AttestError::Convertion)),
+        }
+    }
+
+    pub fn decrypt(&mut self, data: &[u8]) -> Res<Vec<u8>> {
+        unsafe {
+            let mut buf = Vec::from(data);
+            let mut len = data.len();
+            let rc = ga_decrypt(self.p_attestation_client, buf.as_mut_ptr(), &mut len);
+
+            if rc == 0 {
+                buf.set_len(len);
+                return Ok(buf);
+            }
+
+            Err(Box::new(AttestError::LibraryError(rc)))
+        }
     }
 }
+
+impl Drop for AttestationClientManager {
+    fn drop(&mut self) {
+        unsafe {
+            ga_free(self.p_attestation_client);
+        }
+    }
+}
+
+unsafe impl Send for AttestationClientManager {}
