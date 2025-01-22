@@ -27,13 +27,13 @@ extern "C" {
     fn ga_decrypt(pAttestationClient: *mut c_void, cipher: *mut u8, len: *mut size_t) -> c_int;
 }
 
-pub struct AttestationClientManager {
+pub struct AttestationClient {
     p_attestation_client: *mut c_void,
 }
 
-impl AttestationClientManager {
-    pub fn new() -> Res<AttestationClientManager> {
-        let mut manager = AttestationClientManager {
+impl AttestationClient {
+    pub fn new() -> Res<AttestationClient> {
+        let mut manager = AttestationClient {
             p_attestation_client: std::ptr::null_mut(),
         };
 
@@ -43,7 +43,7 @@ impl AttestationClientManager {
                 return Ok(manager);
             }
 
-            return Err(Box::new(AttestError::Initialization));
+            Err(Box::new(AttestError::Initialization))
         }
     }
 
@@ -92,7 +92,7 @@ impl AttestationClientManager {
     }
 }
 
-impl Drop for AttestationClientManager {
+impl Drop for AttestationClient {
     fn drop(&mut self) {
         unsafe {
             ga_free(self.p_attestation_client);
@@ -100,4 +100,4 @@ impl Drop for AttestationClientManager {
     }
 }
 
-unsafe impl Send for AttestationClientManager {}
+unsafe impl Send for AttestationClient {}

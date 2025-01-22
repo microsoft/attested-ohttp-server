@@ -16,10 +16,7 @@ use reqwest::{
     Method, Response, Url,
 };
 
-use base64::{
-    engine::general_purpose::STANDARD as b64,
-    Engine as _,
-};
+use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use bhttp::{Message, Mode};
 use clap::Parser;
 use ohttp::{
@@ -30,7 +27,7 @@ use warp::{hyper::Body, Filter};
 
 use tokio::time::{sleep, Duration};
 
-use cgpuvm_attest::AttestationClientManager;
+use cgpuvm_attest::AttestationClient;
 use reqwest::Client;
 
 type Res<T> = Result<T, Box<dyn std::error::Error>>;
@@ -107,8 +104,8 @@ impl Args {
 // SKRError are manually invalidated (see import_config), after 60 seconds
 #[derive(Clone)]
 enum CachedKey {
-    ValidKey(KeyConfig, String),
     SKRError(std::time::SystemTime),
+    ValidKey(Box<KeyConfig>, String),
 }
 
 // Lazily initialized shared globals
@@ -120,7 +117,7 @@ lazy_static! {
 }
 
 fn parse_cbor_key(key: &[u8], kid: u8) -> Res<(Option<Vec<u8>>, u8)> {
-    let cwk_map: Value = serde_cbor::from_slice(&key)?;
+    let cwk_map: Value = serde_cbor::from_slice(key)?;
     let mut d = None;
     let mut returned_kid: u8 = 0;
     if let Value::Map(map) = cwk_map {
@@ -239,14 +236,11 @@ async fn get_hpke_private_key_from_kms(
     }
 }
 
-fn fetch_maa_token(
-    attestation_client_manager: &mut AttestationClientManager,
-    maa: &str,
-) -> Res<String> {
+fn fetch_maa_token(attestation_client: &mut AttestationClient, maa: &str) -> Res<String> {
     // Get MAA token from CVM guest attestation library
     info!("Fetching MAA token from {maa}");
 
-    let t = attestation_client_manager.attest("{}".as_bytes(), 0xff, maa)?;
+    let t = attestation_client.attest("{}".as_bytes(), 0xff, maa)?;
 
     let token = String::from_utf8(t).unwrap();
     trace!("Fetched MAA token: {token}");
@@ -254,7 +248,7 @@ fn fetch_maa_token(
 }
 
 async fn load_config(
-    attestation_client_manager: &mut AttestationClientManager,
+    attestation_client: &mut AttestationClient,
     kms: &str,
     kid: u8,
     token: &str,
@@ -263,7 +257,7 @@ async fn load_config(
     // The KMS returns the base64-encoded, RSA2048-OAEP-SHA256 encrypted CBOR key
     let key = get_hpke_private_key_from_kms(kms, kid, token, x_ms_request_id).await?;
     let enc_key: &[u8] = &b64.decode(&key)?;
-    let decrypted_key = match attestation_client_manager.decrypt(enc_key) {
+    let decrypted_key = match attestation_client.decrypt(enc_key) {
         Ok(k) => k,
         _ => Err(Box::new(ServerError::TPMDecryptionFailure))?,
     };
@@ -301,27 +295,27 @@ async fn load_config_token(
         match entry {
             CachedKey::ValidKey(config, token) => {
                 info!("Found OHTTP configuration for KID {kid} in cache.");
-                return Ok((config, token));
+                return Ok((*config, token));
             }
             CachedKey::SKRError(ts) => {
                 if ts.elapsed()? > Duration::from_secs(KID_NOT_FOUND_RETRY_TIMER) {
                     cache.invalidate(&kid).await;
                 } else {
-                    Err(Box::new(ServerError::CachedSKRError))?
+                    Err(Box::new(ServerError::CachedSKRError))?;
                 }
             }
         }
     }
 
-    let mut attestation_client_manager = match AttestationClientManager::new() {
+    let mut attestation_client = match AttestationClient::new() {
         Ok(cli) => cli,
         _ => Err(Box::new(ServerError::AttestationLibraryInit))?,
     };
 
-    let token = fetch_maa_token(&mut attestation_client_manager, &maa)?;
+    let token = fetch_maa_token(&mut attestation_client, maa)?;
 
     let config = load_config(
-        &mut attestation_client_manager,
+        &mut attestation_client,
         kms,
         kid,
         token.as_str(),
@@ -330,7 +324,10 @@ async fn load_config_token(
     .await?;
 
     cache
-        .insert(kid, CachedKey::ValidKey(config.clone(), token.clone()))
+        .insert(
+            kid,
+            CachedKey::ValidKey(Box::new(config.clone()), token.clone()),
+        )
         .await;
 
     Ok((config, token))
@@ -627,7 +624,7 @@ async fn cache_local_config() -> Res<()> {
         .insert(
             0,
             CachedKey::ValidKey(
-                config,
+                Box::new(config),
                 "<LOCALLY GENERATED KEY, NO ATTESTATION TOKEN>".to_owned(),
             ),
         )
