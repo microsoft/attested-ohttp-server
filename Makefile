@@ -1,5 +1,5 @@
-KMS ?= https://accconfinferencedebug.confidential-ledger.azure.com
-MAA ?= https://maanosecureboottestyfu.eus.attest.azure.net
+KMS ?= https://accconfinferenceprod.confidential-ledger.azure.com
+MAA ?= https://confinfermaaeus2test.eus2.test.attest.azure.net
 
 export TARGET ?= http://127.0.0.1:3000
 export TARGET_PATH ?= '/whisper'
