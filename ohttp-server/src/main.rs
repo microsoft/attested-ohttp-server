@@ -6,6 +6,7 @@
 pub mod err;
 
 use std::{io::Cursor, net::SocketAddr, sync::Arc, fs::read_to_string};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use lazy_static::lazy_static;
 use moka::future::Cache;
