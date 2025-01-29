@@ -5,8 +5,15 @@
 
 pub mod err;
 
-use std::{io::Cursor, net::SocketAddr, sync::Arc, fs::read_to_string};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    fs::read_to_string,
+    io::Cursor,
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use lazy_static::lazy_static;
 use moka::future::Cache;
@@ -57,7 +64,8 @@ const KID_NOT_FOUND_RETRY_TIMER: u64 = 60;
 const DEFAULT_KMS_URL: &str = "https://accconfinferenceprod.confidential-ledger.azure.com/app/key";
 const DEFAULT_MAA_URL: &str = "https://confinfermaaeus2test.eus2.test.attest.azure.net";
 const FILTERED_RESPONSE_HEADERS: [&str; 2] = ["content-type", "content-length"];
-const GPU_ATTESTATION_RESULT_PATH: &str = "/var/local_gpu_verifier_outputs/gpu_attestation_results.log";
+const GPU_ATTESTATION_RESULT_PATH: &str =
+    "/var/local_gpu_verifier_outputs/gpu_attestation_results.log";
 
 #[derive(Debug, Parser, Clone)]
 #[command(name = "ohttp-server", about = "Serve oblivious HTTP requests.")]
@@ -676,7 +684,9 @@ fn is_gpu_attestation_ok() -> bool {
 fn do_gpu_attestation_or_fail() -> Result<(), Box<dyn std::error::Error>> {
     // Read GPU attestation output file
     let contents = read_to_string(GPU_ATTESTATION_RESULT_PATH).map_err(|e| {
-        let error_msg = format!("Failed to read GPU attestation output file '{GPU_ATTESTATION_RESULT_PATH}': {e}");
+        let error_msg = format!(
+            "Failed to read GPU attestation output file '{GPU_ATTESTATION_RESULT_PATH}': {e}"
+        );
         Box::new(ServerError::GPUAttestationFailure(error_msg)) as Box<dyn std::error::Error>
     })?;
 
