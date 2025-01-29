@@ -5,7 +5,7 @@
 
 pub mod err;
 
-use std::{io::Cursor, net::SocketAddr, sync::Arc};
+use std::{io::Cursor, net::SocketAddr, sync::Arc, fs::read_to_string};
 
 use lazy_static::lazy_static;
 use moka::future::Cache;
@@ -56,6 +56,7 @@ const KID_NOT_FOUND_RETRY_TIMER: u64 = 60;
 const DEFAULT_KMS_URL: &str = "https://accconfinferenceprod.confidential-ledger.azure.com/app/key";
 const DEFAULT_MAA_URL: &str = "https://confinfermaaeus2test.eus2.test.attest.azure.net";
 const FILTERED_RESPONSE_HEADERS: [&str; 2] = ["content-type", "content-length"];
+const GPU_ATTESTATION_RESULT_PATH: &str = "/var/gpu_attestation_result.log";
 
 #[derive(Debug, Parser, Clone)]
 #[command(name = "ohttp-server", about = "Serve oblivious HTTP requests.")]
@@ -114,6 +115,9 @@ lazy_static! {
     static ref cache : Arc<Cache<u8, CachedKey>> = Arc::new(Cache::builder()
         .time_to_live(Duration::from_secs(24 * 60 * 60))
         .build());
+
+    // GPU attestation result
+    static ref GPU_ATTESTATION_OK: AtomicBool = AtomicBool::new(false);
 }
 
 fn parse_cbor_key(key: &[u8], kid: u8) -> Res<(Option<Vec<u8>>, u8)> {
@@ -465,6 +469,15 @@ async fn score(
         Some(kid) => kid,
     };
 
+    // If attestation check at startup failed, return 500
+    if !is_gpu_attestation_ok() {
+        error!("Score request denied because GPU attestation failed at startup.");
+        let error_msg = "GPU attestation failure";
+        return Ok(warp::http::Response::builder()
+            .status(500)
+            .body(Body::from(error_msg.as_bytes())));
+    }
+
     let maa_url = args.maa_url.clone().unwrap_or(DEFAULT_MAA_URL.to_string());
     let kms_url = args.kms_url.clone().unwrap_or(DEFAULT_KMS_URL.to_string());
     let (config, token) =
@@ -648,9 +661,49 @@ fn init() {
     ::ohttp::init();
 }
 
+// Simple function to set success or failure at startup:
+fn set_gpu_attestation_ok(ok: bool) {
+    GPU_ATTESTATION_OK.store(ok, Ordering::SeqCst);
+}
+
+// Then, during each request, you can check:
+fn is_gpu_attestation_ok() -> bool {
+    GPU_ATTESTATION_OK.load(Ordering::SeqCst)
+}
+
+// Check whether the GPU attstation log has attestation successful message
+fn do_gpu_attestation_or_fail() -> Result<(), Box<dyn std::error::Error>> {
+    // Read GPU attestation output file
+    let contents = fs::read_to_string(GPU_ATTESTATION_RESULT_PATH).map_err(|e| {
+        let error_msg = format!("Failed to read GPU attestation output file '{GPU_ATTESTATION_RESULT_PATH}': {e}");
+        Box::new(ServerError::GPUAttestationFailure(error_msg)) as Box<dyn std::error::Error>
+    })?;
+
+    // Check the GPU attestation result file for the expected successful message
+    let gpu_attestation_successful_msg = "Attestation successful";
+    if !contents.contains(gpu_attestation_successful_msg) {
+        let error_msg = format!("File '{GPU_ATTESTATION_RESULT_PATH}' does not contain '{gpu_attestation_successful_msg}'");
+        return Err(Box::new(ServerError::GPUAttestationFailure(error_msg)));
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Res<()> {
     init();
+
+    // Check GPU attestation at startup
+    match do_gpu_attestation_or_fail() {
+        Ok(()) => {
+            set_gpu_attestation_ok(true);
+            info!("GPU attestation check succeeded");
+        }
+        Err(e) => {
+            set_gpu_attestation_ok(false);
+            error!("GPU attestation check failed: {e}");
+        }
+    }
 
     let args = Args::parse();
     let address = args.address;
