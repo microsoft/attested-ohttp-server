@@ -675,7 +675,7 @@ fn is_gpu_attestation_ok() -> bool {
 // Check whether the GPU attstation log has attestation successful message
 fn do_gpu_attestation_or_fail() -> Result<(), Box<dyn std::error::Error>> {
     // Read GPU attestation output file
-    let contents = fs::read_to_string(GPU_ATTESTATION_RESULT_PATH).map_err(|e| {
+    let contents = read_to_string(GPU_ATTESTATION_RESULT_PATH).map_err(|e| {
         let error_msg = format!("Failed to read GPU attestation output file '{GPU_ATTESTATION_RESULT_PATH}': {e}");
         Box::new(ServerError::GPUAttestationFailure(error_msg)) as Box<dyn std::error::Error>
     })?;
