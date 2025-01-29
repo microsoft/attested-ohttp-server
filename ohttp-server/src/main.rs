@@ -470,7 +470,7 @@ async fn score(
         Some(kid) => kid,
     };
 
-    // If attestation check at startup failed, return 500
+    // If GPU attestation check at startup failed, return 500
     if !is_gpu_attestation_ok() {
         error!("Score request denied because GPU attestation failed at startup.");
         let error_msg = "GPU attestation failure";
