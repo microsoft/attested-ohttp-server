@@ -694,20 +694,25 @@ fn do_gpu_attestation_or_fail() -> Result<(), Box<dyn std::error::Error>> {
 async fn main() -> Res<()> {
     init();
 
-    // Check GPU attestation at startup
-    match do_gpu_attestation_or_fail() {
-        Ok(()) => {
-            set_gpu_attestation_ok(true);
-            info!("GPU attestation check succeeded");
-        }
-        Err(e) => {
-            set_gpu_attestation_ok(false);
-            error!("GPU attestation check failed: {e}");
-        }
-    }
-
     let args = Args::parse();
     let address = args.address;
+
+    // Check GPU attestation at startup
+    if args.local_key {
+        set_gpu_attestation_ok(true);
+        info!("GPU attestation check skipped for local testing");
+    } else {
+        match do_gpu_attestation_or_fail() {
+            Ok(()) => {
+                set_gpu_attestation_ok(true);
+                info!("GPU attestation check succeeded");
+            }
+            Err(e) => {
+                set_gpu_attestation_ok(false);
+                error!("GPU attestation check failed: {e}");
+            }
+        }
+    }
 
     // Generate a fresh key for local testing. KID is set to 0.
     if args.local_key {
