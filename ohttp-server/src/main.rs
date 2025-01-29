@@ -57,7 +57,7 @@ const KID_NOT_FOUND_RETRY_TIMER: u64 = 60;
 const DEFAULT_KMS_URL: &str = "https://accconfinferenceprod.confidential-ledger.azure.com/app/key";
 const DEFAULT_MAA_URL: &str = "https://confinfermaaeus2test.eus2.test.attest.azure.net";
 const FILTERED_RESPONSE_HEADERS: [&str; 2] = ["content-type", "content-length"];
-const GPU_ATTESTATION_RESULT_PATH: &str = "/var/gpu_attestation_result.log";
+const GPU_ATTESTATION_RESULT_PATH: &str = "/var/local_gpu_verifier_outputs/gpu_attestation_results.log";
 
 #[derive(Debug, Parser, Clone)]
 #[command(name = "ohttp-server", about = "Serve oblivious HTTP requests.")]
