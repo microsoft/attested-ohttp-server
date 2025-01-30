@@ -685,6 +685,7 @@ fn do_gpu_attestation_or_fail() -> Result<(), Box<dyn std::error::Error>> {
         let error_msg = format!(
             "Failed to read GPU attestation output file '{GPU_ATTESTATION_RESULT_PATH}': {e}"
         );
+        error!("{error_msg}");
         Box::new(ServerError::GPUAttestationFailure(error_msg)) as Box<dyn std::error::Error>
     })?;
 
@@ -692,6 +693,7 @@ fn do_gpu_attestation_or_fail() -> Result<(), Box<dyn std::error::Error>> {
     let gpu_attestation_successful_msg = "Attestation successful";
     if !contents.contains(gpu_attestation_successful_msg) {
         let error_msg = format!("File '{GPU_ATTESTATION_RESULT_PATH}' does not contain '{gpu_attestation_successful_msg}'");
+        error!("{error_msg}");
         return Err(Box::new(ServerError::GPUAttestationFailure(error_msg)));
     }
 
