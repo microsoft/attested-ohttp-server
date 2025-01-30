@@ -324,7 +324,9 @@ async fn load_config_token(
     if !is_gpu_attestation_ok() {
         let error_msg = "GPU attestation flag is set to false";
         error!("{error_msg}");
-        Err(Box::new(ServerError::GPUAttestationFailure(error_msg.into())))?;
+        Err(Box::new(ServerError::GPUAttestationFailure(
+            error_msg.into(),
+        )))?;
     }
 
     let mut attestation_client = match AttestationClient::new() {
