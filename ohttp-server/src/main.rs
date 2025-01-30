@@ -804,6 +804,23 @@ mod tests {
     const URL_DISCOVER: &str = "http://localhost:9443/discover";
 
     fn start_server(args: &Arc<Args>) -> (tokio::task::JoinHandle<()>, mpsc::Sender<()>) {
+        // Check GPU attestation at server startup
+        if args.local_key {
+            set_gpu_attestation_ok(true);
+            info!("GPU attestation check skipped for local testing");
+        } else {
+            match do_gpu_attestation_or_fail() {
+                Ok(()) => {
+                    set_gpu_attestation_ok(true);
+                    info!("GPU attestation check succeeded");
+                }
+                Err(e) => {
+                    set_gpu_attestation_ok(false);
+                    error!("GPU attestation check failed: {e}");
+                }
+            }
+        }
+
         let args1 = Arc::clone(args);
         let score = warp::post()
             .and(warp::path::path("score"))
