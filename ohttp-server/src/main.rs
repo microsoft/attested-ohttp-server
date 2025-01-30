@@ -320,6 +320,13 @@ async fn load_config_token(
         }
     }
 
+    // Check GPU attestation
+    if !is_gpu_attestation_ok() {
+        let error_msg = "GPU attestation flag is set to false";
+        error!("{error_msg}");
+        Err(Box::new(ServerError::GPUAttestationFailure(error_msg.into())))?;
+    }
+
     let mut attestation_client = match AttestationClient::new() {
         Ok(cli) => cli,
         _ => Err(Box::new(ServerError::AttestationLibraryInit))?,
@@ -477,15 +484,6 @@ async fn score(
         }
         Some(kid) => kid,
     };
-
-    // If GPU attestation check at startup failed, return 500
-    if !is_gpu_attestation_ok() {
-        error!("Score request denied because GPU attestation failed at startup.");
-        let error_msg = "GPU attestation failure";
-        return Ok(warp::http::Response::builder()
-            .status(500)
-            .body(Body::from(error_msg.as_bytes())));
-    }
 
     let maa_url = args.maa_url.clone().unwrap_or(DEFAULT_MAA_URL.to_string());
     let kms_url = args.kms_url.clone().unwrap_or(DEFAULT_KMS_URL.to_string());
