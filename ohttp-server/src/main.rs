@@ -5,15 +5,7 @@
 
 pub mod err;
 
-use std::{
-    fs::read_to_string,
-    io::Cursor,
-    net::SocketAddr,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-};
+use std::{io::Cursor, net::SocketAddr, sync::Arc};
 
 use lazy_static::lazy_static;
 use moka::future::Cache;
@@ -63,9 +55,8 @@ struct ExportedKey {
 const KID_NOT_FOUND_RETRY_TIMER: u64 = 60;
 const DEFAULT_KMS_URL: &str = "https://accconfinferenceprod.confidential-ledger.azure.com/app/key";
 const DEFAULT_MAA_URL: &str = "https://confinfermaaeus2test.eus2.test.attest.azure.net";
+const DEFAULT_GPU_ATTESTATION_URL: &str = "https://localhost:8123/gpu_attest";
 const FILTERED_RESPONSE_HEADERS: [&str; 2] = ["content-type", "content-length"];
-const GPU_ATTESTATION_RESULT_PATH: &str =
-    "/var/local_gpu_verifier_outputs/gpu_attestation_results.log";
 
 #[derive(Debug, Parser, Clone)]
 #[command(name = "ohttp-server", about = "Serve oblivious HTTP requests.")]
@@ -124,9 +115,6 @@ lazy_static! {
     static ref cache : Arc<Cache<u8, CachedKey>> = Arc::new(Cache::builder()
         .time_to_live(Duration::from_secs(24 * 60 * 60))
         .build());
-
-    // GPU attestation result
-    static ref GPU_ATTESTATION_OK: AtomicBool = AtomicBool::new(false);
 }
 
 fn parse_cbor_key(key: &[u8], kid: u8) -> Res<(Option<Vec<u8>>, u8)> {
@@ -320,14 +308,9 @@ async fn load_config_token(
         }
     }
 
-    // Check GPU attestation
-    if !is_gpu_attestation_ok() {
-        let error_msg = "GPU attestation flag is set to false";
-        error!("{error_msg}");
-        Err(Box::new(ServerError::GPUAttestationFailure(
-            error_msg.into(),
-        )))?;
-    }
+    // Call local GPU attestation service here
+    // Throw GPUAttestationFailure if it fails
+    do_gpu_attestation_or_fail()?;
 
     let mut attestation_client = match AttestationClient::new() {
         Ok(cli) => cli,
@@ -670,35 +653,11 @@ fn init() {
     ::ohttp::init();
 }
 
-// Simple function to set success or failure at startup:
-fn set_gpu_attestation_ok(ok: bool) {
-    GPU_ATTESTATION_OK.store(ok, Ordering::SeqCst);
-}
-
-// Then, during each request, you can check:
-fn is_gpu_attestation_ok() -> bool {
-    GPU_ATTESTATION_OK.load(Ordering::SeqCst)
-}
-
-// Check whether the GPU attstation log has attestation successful message
+// TODO:
+// Implement call to local GPU attestation service;
+// Check for 200 for attestation success
+// Log attestation output
 fn do_gpu_attestation_or_fail() -> Result<(), Box<dyn std::error::Error>> {
-    // Read GPU attestation output file
-    let contents = read_to_string(GPU_ATTESTATION_RESULT_PATH).map_err(|e| {
-        let error_msg = format!(
-            "Failed to read GPU attestation output file '{GPU_ATTESTATION_RESULT_PATH}': {e}"
-        );
-        error!("{error_msg}");
-        Box::new(ServerError::GPUAttestationFailure(error_msg)) as Box<dyn std::error::Error>
-    })?;
-
-    // Check the GPU attestation result file for the expected successful message
-    let gpu_attestation_successful_msg = "Attestation successful";
-    if !contents.contains(gpu_attestation_successful_msg) {
-        let error_msg = format!("File '{GPU_ATTESTATION_RESULT_PATH}' does not contain '{gpu_attestation_successful_msg}'");
-        error!("{error_msg}");
-        return Err(Box::new(ServerError::GPUAttestationFailure(error_msg)));
-    }
-
     Ok(())
 }
 
@@ -708,23 +667,6 @@ async fn main() -> Res<()> {
 
     let args = Args::parse();
     let address = args.address;
-
-    // Check GPU attestation at startup
-    if args.local_key {
-        set_gpu_attestation_ok(true);
-        info!("GPU attestation check skipped for local testing");
-    } else {
-        match do_gpu_attestation_or_fail() {
-            Ok(()) => {
-                set_gpu_attestation_ok(true);
-                info!("GPU attestation check succeeded");
-            }
-            Err(e) => {
-                set_gpu_attestation_ok(false);
-                error!("GPU attestation check failed: {e}");
-            }
-        }
-    }
 
     // Generate a fresh key for local testing. KID is set to 0.
     if args.local_key {
@@ -806,23 +748,6 @@ mod tests {
     const URL_DISCOVER: &str = "http://localhost:9443/discover";
 
     fn start_server(args: &Arc<Args>) -> (tokio::task::JoinHandle<()>, mpsc::Sender<()>) {
-        // Check GPU attestation at server startup
-        if args.local_key {
-            set_gpu_attestation_ok(true);
-            info!("GPU attestation check skipped for local testing");
-        } else {
-            match do_gpu_attestation_or_fail() {
-                Ok(()) => {
-                    set_gpu_attestation_ok(true);
-                    info!("GPU attestation check succeeded");
-                }
-                Err(e) => {
-                    set_gpu_attestation_ok(false);
-                    error!("GPU attestation check failed: {e}");
-                }
-            }
-        }
-
         let args1 = Arc::clone(args);
         let score = warp::post()
             .and(warp::path::path("score"))
