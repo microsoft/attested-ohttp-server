@@ -55,7 +55,7 @@ struct ExportedKey {
 const KID_NOT_FOUND_RETRY_TIMER: u64 = 60;
 const DEFAULT_KMS_URL: &str = "https://accconfinferenceprod.confidential-ledger.azure.com/app/key";
 const DEFAULT_MAA_URL: &str = "https://confinfermaaeus2test.eus2.test.attest.azure.net";
-const DEFAULT_GPU_ATTESTATION_URL: &str = "https://localhost:8123/gpu_attest";
+const DEFAULT_GPU_ATTESTATION_URL: &str = "http://localhost:8123/gpu_attest";
 const FILTERED_RESPONSE_HEADERS: [&str; 2] = ["content-type", "content-length"];
 
 #[derive(Debug, Parser, Clone)]
@@ -308,9 +308,8 @@ async fn load_config_token(
         }
     }
 
-    // Call local GPU attestation service here
-    // Throw GPUAttestationFailure if it fails
-    do_gpu_attestation_or_fail()?;
+    // Run local GPU attestation
+    do_gpu_attestation_or_fail(x_ms_request_id).await?;
 
     let mut attestation_client = match AttestationClient::new() {
         Ok(cli) => cli,
@@ -653,11 +652,32 @@ fn init() {
     ::ohttp::init();
 }
 
-// TODO:
-// Implement call to local GPU attestation service;
-// Check for 200 for attestation success
-// Log attestation output
-fn do_gpu_attestation_or_fail() -> Result<(), Box<dyn std::error::Error>> {
+async fn do_gpu_attestation_or_fail(x_ms_request_id: Uuid) -> Res<()> {
+    let client = Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()?;
+
+    let resp = client
+        .get(DEFAULT_GPU_ATTESTATION_URL)
+        .header("x-request-id", x_ms_request_id.to_string())
+        .send()
+        .await?;
+
+    let status = resp.status();
+    let body = resp.text().await?;
+
+    if !status.is_success() {
+        error!(
+            "Local GPU attestation failed: status={}, body={}",
+            status, body
+        );
+        return Err(Box::new(ServerError::GPUAttestationFailure(format!(
+            "status code = {}, body = {}",
+            status, body
+        ))));
+    }
+
+    info!("Local GPU attestation succeeded: {}", body);
     Ok(())
 }
 
