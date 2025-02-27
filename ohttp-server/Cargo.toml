@@ -53,4 +53,6 @@ hyper = "0.14"  # Use the latest patch version for the 0.14.x series
 ohttp-client = {path = "../external/attested-ohttp-client/ohttp-client" }
 
 [patch.crates-io]
-litemap = { version = "=0.7.4" }    # litemap 0.7.5 needs Rust 1.81 and does not work with Rust 1.75
+# The below pacakges requires Rust 1.81 and does not work with Rust 1.75
+litemap = { version = "=0.7.4" } 
+zerofrom = { version = "=0.1.5" } 
