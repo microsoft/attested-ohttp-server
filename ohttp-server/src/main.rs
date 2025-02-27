@@ -657,27 +657,29 @@ async fn do_gpu_attestation_or_fail(x_ms_request_id: Uuid) -> Res<()> {
         .danger_accept_invalid_certs(true)
         .build()?;
 
-    let resp = client
+    let resp = match client
         .get(DEFAULT_GPU_ATTESTATION_URL)
         .header("x-request-id", x_ms_request_id.to_string())
         .send()
-        .await?;
+        .await {
+            Ok(response) => response,
+            Err(e) => {
+                return Err(Box::new(ServerError::GPUAttestationFailure(
+                    format!("Failed to connect to GPU Attestation Service: {e}")
+                )));
+            }
+        };
 
     let status = resp.status();
     let body = resp.text().await?;
 
     if !status.is_success() {
-        error!(
-            "Local GPU attestation failed: status={}, body={}",
-            status, body
-        );
-        return Err(Box::new(ServerError::GPUAttestationFailure(format!(
-            "status code = {}, body = {}",
-            status, body
-        ))));
+        return Err(Box::new(ServerError::GPUAttestationFailure(
+            format!("status code = {status}, body = {body}")
+        )));
     }
 
-    info!("Local GPU attestation succeeded: {}", body);
+    info!("Local GPU attestation succeeded: {body}");
     Ok(())
 }
 
