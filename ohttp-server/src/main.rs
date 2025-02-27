@@ -661,22 +661,23 @@ async fn do_gpu_attestation_or_fail(x_ms_request_id: Uuid) -> Res<()> {
         .get(DEFAULT_GPU_ATTESTATION_URL)
         .header("x-request-id", x_ms_request_id.to_string())
         .send()
-        .await {
-            Ok(response) => response,
-            Err(e) => {
-                return Err(Box::new(ServerError::GPUAttestationFailure(
-                    format!("Failed to connect to GPU Attestation Service: {e}")
-                )));
-            }
-        };
+        .await
+    {
+        Ok(response) => response,
+        Err(e) => {
+            return Err(Box::new(ServerError::GPUAttestationFailure(format!(
+                "Failed to connect to GPU Attestation Service: {e}"
+            ))));
+        }
+    };
 
     let status = resp.status();
     let body = resp.text().await?;
 
     if !status.is_success() {
-        return Err(Box::new(ServerError::GPUAttestationFailure(
-            format!("status code = {status}, body = {body}")
-        )));
+        return Err(Box::new(ServerError::GPUAttestationFailure(format!(
+            "status code = {status}, body = {body}"
+        ))));
     }
 
     info!("Local GPU attestation succeeded: {body}");
