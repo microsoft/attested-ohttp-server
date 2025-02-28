@@ -23,7 +23,7 @@ jobs:
         hpke:
           - rust-hpke
         rust:
-          - 1.75.0
+          - 1.84.1
           - stable
 
     steps:
