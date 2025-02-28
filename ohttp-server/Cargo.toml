@@ -32,9 +32,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3.18", features = ["default", "json", "env-filter"] }
 thiserror = "1"
 uuid = { version = "1.0", features = ["v4"] }
-# The below pacakges requires Rust 1.81 and does not work with Rust 1.75
-litemap = { version = "=0.7.4" } 
-zerofrom = { version = "=0.1.5" } 
 
 [dependencies.cgpuvm-attest]
 path= "../cgpuvm-attest"
