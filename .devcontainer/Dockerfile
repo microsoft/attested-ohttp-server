@@ -1,4 +1,4 @@
-FROM rust:1.75
+FROM rust:1.84.1
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -yq \
 ca-certificates coreutils curl git make mercurial \
