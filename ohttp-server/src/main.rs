@@ -309,7 +309,7 @@ async fn load_config_token(
     }
 
     // Run local GPU attestation
-    do_gpu_attestation_or_fail(x_ms_request_id).await?;
+    do_gpu_attestation(x_ms_request_id).await?;
 
     let mut attestation_client = match AttestationClient::new() {
         Ok(cli) => cli,
@@ -652,7 +652,7 @@ fn init() {
     ::ohttp::init();
 }
 
-async fn do_gpu_attestation_or_fail(x_ms_request_id: Uuid) -> Res<()> {
+async fn do_gpu_attestation(x_ms_request_id: Uuid) -> Res<()> {
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
         .build()?;
