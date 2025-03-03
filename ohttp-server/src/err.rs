@@ -27,4 +27,6 @@ pub enum ServerError {
     PrivateKeyMissing,
     #[error("Guest attestation library failed to decrypt HPKE private key")]
     TPMDecryptionFailure,
+    #[error("GPU attestation failed: {0}")]
+    GPUAttestationFailure(String),
 }
