@@ -1,4 +1,2 @@
-# auto
-*           text=auto
-# linux line-endings
-*.sh        text eol=lf
+*           text=auto     # auto
+*.sh        text eol=lf   # linux line-endings
