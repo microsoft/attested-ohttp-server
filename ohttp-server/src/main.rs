@@ -480,7 +480,7 @@ async fn score(
 
     let maa_url = args.maa_url.clone().unwrap_or(DEFAULT_MAA_URL.to_string());
     let kms_url = args.kms_url.clone().unwrap_or(DEFAULT_KMS_URL.to_string());
-    let gpu_attestion_url = get_gpu_attestation_url(&args.gpu_attestation_ip);
+    let gpu_attestion_url = get_gpu_attestation_url(args.gpu_attestation_ip.as_ref());
     let (config, token) =
         match load_config_token_safe(&maa_url, &kms_url, &gpu_attestion_url, kid, x_ms_request_id)
             .await
@@ -587,7 +587,7 @@ async fn score(
 async fn discover(args: Arc<Args>) -> Result<impl warp::Reply, std::convert::Infallible> {
     let kms_url = &args.kms_url.clone().unwrap_or(DEFAULT_KMS_URL.to_string());
     let maa_url = &args.maa_url.clone().unwrap_or(DEFAULT_MAA_URL.to_string());
-    let gpu_attestation_url = &get_gpu_attestation_url(&args.gpu_attestation_ip);
+    let gpu_attestation_url = &get_gpu_attestation_url(args.gpu_attestation_ip.as_ref());
 
     // The discovery endpoint is only enabled for local testing
     if !args.local_key {
@@ -665,7 +665,7 @@ fn init() {
     ::ohttp::init();
 }
 
-fn get_gpu_attestation_url(gpu_attestation_ip_args: &Option<String>) -> String {
+fn get_gpu_attestation_url(gpu_attestation_ip_args: Option<&String>) -> String {
     // Determine the GPU attesation service IP address by checking args, env var, and then falling back to default
     let ip = match gpu_attestation_ip_args {
         Some(ip) => {
@@ -712,8 +712,7 @@ async fn do_gpu_attestation(gpu_attestation_url: &str, x_ms_request_id: Uuid) ->
         Ok(response) => response,
         Err(e) => {
             return Err(Box::new(ServerError::GPUAttestationFailure(format!(
-                "Failed to connect to GPU Attestation Service at {}: {}",
-                gpu_attestation_url, e
+                "Failed to connect to GPU Attestation Service at {gpu_attestation_url}: {e}"
             ))));
         }
     };
