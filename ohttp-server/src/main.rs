@@ -690,10 +690,7 @@ fn get_gpu_attestation_url(gpu_attestation_ip_args: Option<&String>) -> String {
         },
     };
 
-    format!(
-        "http://{}:{}{}",
-        ip, DEFAULT_GPU_ATTESTATION_PORT, DEFAULT_GPU_ATTESTATION_PATH
-    )
+    format!("http://{ip}:{DEFAULT_GPU_ATTESTATION_PORT}{DEFAULT_GPU_ATTESTATION_PATH}",)
 }
 
 async fn do_gpu_attestation(gpu_attestation_url: &str, x_ms_request_id: Uuid) -> Res<()> {
