@@ -42,6 +42,12 @@ run-server-container-cvm:
 	--mount type=bind,source=/sys/kernel/security,target=/sys/kernel/security \
 	--device /dev/tpmrm0  attested-ohttp-server
 
+run-server-container-cvm-sudo: 
+	sudo docker run --privileged --net=host \
+	-e TARGET=${TARGET} -e MAA_URL=${MAA} -e KMS_URL=${KMS}/app/key -e INJECT_HEADERS=${INJECT_HEADERS} \
+	--mount type=bind,source=/sys/kernel/security,target=/sys/kernel/security \
+	--device /dev/tpmrm0  attested-ohttp-server
+
 # Whisper deployments
 
 run-whisper:
