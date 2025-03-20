@@ -92,7 +92,7 @@ struct Args {
     inject_request_headers: Vec<String>,
 
     /// GPU attestation service IP address
-    #[arg(long, short = 'h')]
+    #[arg(long)]
     gpu_attestation_ip: Option<String>,
 }
 
