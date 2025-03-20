@@ -55,7 +55,10 @@ struct ExportedKey {
 const KID_NOT_FOUND_RETRY_TIMER: u64 = 60;
 const DEFAULT_KMS_URL: &str = "https://accconfinferenceprod.confidential-ledger.azure.com/app/key";
 const DEFAULT_MAA_URL: &str = "https://confinfermaaeus2test.eus2.test.attest.azure.net";
-const DEFAULT_GPU_ATTESTATION_URL: &str = "http://localhost:8123/gpu_attest";
+const DEFAULT_GPU_ATTESTATION_IP: &str = "localhost";
+const DEFAULT_GPU_ATTESTATION_IP_ENVVAR_NAME: &str = "GPU_ATTESTATION_IP_ADDRESS";
+const DEFAULT_GPU_ATTESTATION_PATH: &str = "/gpu_attest";
+const DEFAULT_GPU_ATTESTATION_PORT: &str = "8123";
 const FILTERED_RESPONSE_HEADERS: [&str; 2] = ["content-type", "content-length"];
 
 #[derive(Debug, Parser, Clone)]
@@ -87,6 +90,10 @@ struct Args {
 
     #[arg(long, short = 'i')]
     inject_request_headers: Vec<String>,
+
+    /// GPU attestation service IP address
+    #[arg(long, short = 'h')]
+    gpu_attestation_ip: Option<String>,
 }
 
 impl Args {
@@ -288,6 +295,7 @@ async fn load_config(
 async fn load_config_token(
     maa: &str,
     kms: &str,
+    gpu_attestation: &str,
     kid: u8,
     x_ms_request_id: Uuid,
 ) -> Res<(KeyConfig, String)> {
@@ -309,7 +317,7 @@ async fn load_config_token(
     }
 
     // Run local GPU attestation
-    do_gpu_attestation(x_ms_request_id).await?;
+    do_gpu_attestation(gpu_attestation, x_ms_request_id).await?;
 
     let mut attestation_client = match AttestationClient::new() {
         Ok(cli) => cli,
@@ -341,10 +349,11 @@ async fn load_config_token(
 async fn load_config_token_safe(
     maa: &str,
     kms: &str,
+    gpu_attestation: &str,
     kid: u8,
     x_ms_request_id: Uuid,
 ) -> Result<(KeyConfig, String), String> {
-    match load_config_token(maa, kms, kid, x_ms_request_id).await {
+    match load_config_token(maa, kms, gpu_attestation, kid, x_ms_request_id).await {
         Ok(r) => Ok(r),
         Err(e) => {
             let err = format!("Error loading OHTTP key configuration {kid}: {e:?}");
@@ -471,8 +480,11 @@ async fn score(
 
     let maa_url = args.maa_url.clone().unwrap_or(DEFAULT_MAA_URL.to_string());
     let kms_url = args.kms_url.clone().unwrap_or(DEFAULT_KMS_URL.to_string());
+    let gpu_attestion_url = get_gpu_attestation_url(&args.gpu_attestation_ip);
     let (config, token) =
-        match load_config_token_safe(&maa_url, &kms_url, kid, x_ms_request_id).await {
+        match load_config_token_safe(&maa_url, &kms_url, &gpu_attestion_url, kid, x_ms_request_id)
+            .await
+        {
             Ok((config, token)) => (config, token),
             Err(_e) => {
                 cache
@@ -575,6 +587,7 @@ async fn score(
 async fn discover(args: Arc<Args>) -> Result<impl warp::Reply, std::convert::Infallible> {
     let kms_url = &args.kms_url.clone().unwrap_or(DEFAULT_KMS_URL.to_string());
     let maa_url = &args.maa_url.clone().unwrap_or(DEFAULT_MAA_URL.to_string());
+    let gpu_attestation_url = &get_gpu_attestation_url(&args.gpu_attestation_ip);
 
     // The discovery endpoint is only enabled for local testing
     if !args.local_key {
@@ -583,7 +596,7 @@ async fn discover(args: Arc<Args>) -> Result<impl warp::Reply, std::convert::Inf
             .body(Body::from(&b"Not found"[..])));
     }
 
-    match load_config_token(maa_url, kms_url, 0, Uuid::nil()).await {
+    match load_config_token(maa_url, kms_url, gpu_attestation_url, 0, Uuid::nil()).await {
         Ok((config, _)) => match KeyConfig::encode_list(&[config]) {
             Ok(list) => {
                 let hex = hex::encode(list);
@@ -652,13 +665,46 @@ fn init() {
     ::ohttp::init();
 }
 
-async fn do_gpu_attestation(x_ms_request_id: Uuid) -> Res<()> {
+fn get_gpu_attestation_url(gpu_attestation_ip_args: &Option<String>) -> String {
+    // Determine the GPU attesation service IP address by checking args, env var, and then falling back to default
+    let ip = match gpu_attestation_ip_args {
+        Some(ip) => {
+            info!("Using GPU attestation service IP address from args: {}", ip);
+            ip.clone()
+        }
+        None => match std::env::var(DEFAULT_GPU_ATTESTATION_IP_ENVVAR_NAME) {
+            Ok(ip) => {
+                info!(
+                    "Using GPU attestation service IP address from environment variable {}: {}",
+                    DEFAULT_GPU_ATTESTATION_IP_ENVVAR_NAME, ip
+                );
+                ip
+            }
+            Err(_e) => {
+                info!(
+                    "Using the default GPU attestation service IP address: {}",
+                    DEFAULT_GPU_ATTESTATION_IP
+                );
+                DEFAULT_GPU_ATTESTATION_IP.to_string()
+            }
+        },
+    };
+
+    format!(
+        "http://{}:{}{}",
+        ip, DEFAULT_GPU_ATTESTATION_PORT, DEFAULT_GPU_ATTESTATION_PATH
+    )
+}
+
+async fn do_gpu_attestation(gpu_attestation_url: &str, x_ms_request_id: Uuid) -> Res<()> {
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
         .build()?;
 
+    info!("Using GPU attestation service URL: {}", gpu_attestation_url);
+
     let resp = match client
-        .get(DEFAULT_GPU_ATTESTATION_URL)
+        .get(gpu_attestation_url)
         .header("x-request-id", x_ms_request_id.to_string())
         .send()
         .await
@@ -666,7 +712,8 @@ async fn do_gpu_attestation(x_ms_request_id: Uuid) -> Res<()> {
         Ok(response) => response,
         Err(e) => {
             return Err(Box::new(ServerError::GPUAttestationFailure(format!(
-                "Failed to connect to GPU Attestation Service: {e}"
+                "Failed to connect to GPU Attestation Service at {}: {}",
+                gpu_attestation_url, e
             ))));
         }
     };
@@ -763,6 +810,7 @@ mod tests {
             maa_url: None,
             kms_url: None,
             inject_request_headers: vec![],
+            gpu_attestation_ip: None,
         })
     }
 
