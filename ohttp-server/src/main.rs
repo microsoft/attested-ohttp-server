@@ -309,7 +309,7 @@ async fn load_config_token(
     }
 
     // Run local GPU attestation
-    do_gpu_attestation(x_ms_request_id).await?;
+    //do_gpu_attestation(x_ms_request_id).await?;
 
     let mut attestation_client = match AttestationClient::new() {
         Ok(cli) => cli,
@@ -509,14 +509,14 @@ async fn score(
     for (key, value) in &inject_headers {
         info!("    {}: {}", key, value.to_str().unwrap());
     }
-    let target_path = headers.get("enginetarget");
+    //let target_path = headers.get("enginetarget");
     let mode = args.mode();
     let (response, server_response) = match generate_reply(
         &ohttp,
         inject_headers,
         &body[..],
         target,
-        target_path,
+        None, // target_path
         mode,
         x_ms_request_id,
     )
