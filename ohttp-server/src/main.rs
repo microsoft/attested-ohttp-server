@@ -424,7 +424,7 @@ async fn generate_reply(
     let response = client
         .request(method, t)
         .headers(headers)
-        .header("x-request-id", x_ms_request_id.to_string())
+        .header("x-ms-client-request-id", x_ms_request_id.to_string())
         .body(bin_request.content().to_vec())
         .send()
         .await?
