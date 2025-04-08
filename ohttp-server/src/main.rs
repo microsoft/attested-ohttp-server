@@ -7,8 +7,8 @@ pub mod err;
 
 use std::{io::Cursor, net::SocketAddr, sync::Arc};
 
-use lazy_static::lazy_static;
 use moka::future::Cache;
+use std::sync::LazyLock;
 
 use futures_util::stream::unfold;
 use reqwest::{
@@ -115,13 +115,13 @@ enum CachedKey {
     ValidKey(Box<KeyConfig>, String),
 }
 
-// Lazily initialized shared globals
-lazy_static! {
-    // Key cache for Oblivious HTTP, by key id
-    static ref cache : Arc<Cache<u8, CachedKey>> = Arc::new(Cache::builder()
-        .time_to_live(Duration::from_secs(24 * 60 * 60))
-        .build());
-}
+static CACHE: LazyLock<Arc<Cache<u8, CachedKey>>> = LazyLock::new(|| {
+    Arc::new(
+        Cache::builder()
+            .time_to_live(Duration::from_secs(24 * 60 * 60))
+            .build(),
+    )
+});
 
 fn parse_cbor_key(key: &[u8], kid: u8) -> Res<(Option<Vec<u8>>, u8)> {
     let cwk_map: Value = serde_cbor::from_slice(key)?;
@@ -166,12 +166,12 @@ fn parse_cbor_key(key: &[u8], kid: u8) -> Res<(Option<Vec<u8>>, u8)> {
                     _ => {
                         return Err(Box::new(ServerError::KMSField));
                     }
-                };
-            };
+                }
+            }
         }
     } else {
         return Err(Box::new(ServerError::KMSCBOREncoding));
-    };
+    }
     Ok((d, returned_kid))
 }
 
@@ -299,7 +299,7 @@ async fn load_config_token(
     x_ms_request_id: Uuid,
 ) -> Res<(KeyConfig, String)> {
     // Check if the key configuration is in cache
-    if let Some(entry) = cache.get(&kid).await {
+    if let Some(entry) = CACHE.get(&kid).await {
         match entry {
             CachedKey::ValidKey(config, token) => {
                 info!("Found OHTTP configuration for KID {kid} in cache.");
@@ -307,7 +307,7 @@ async fn load_config_token(
             }
             CachedKey::SKRError(ts) => {
                 if ts.elapsed()? > Duration::from_secs(KID_NOT_FOUND_RETRY_TIMER) {
-                    cache.invalidate(&kid).await;
+                    CACHE.invalidate(&kid).await;
                 } else {
                     Err(Box::new(ServerError::CachedSKRError))?;
                 }
@@ -334,7 +334,7 @@ async fn load_config_token(
     )
     .await?;
 
-    cache
+    CACHE
         .insert(
             kid,
             CachedKey::ValidKey(Box::new(config.clone()), token.clone()),
@@ -412,7 +412,7 @@ async fn generate_reply(
                 headers.append(key, value);
             }
         }
-    };
+    }
 
     let mut t = target;
 
@@ -494,7 +494,7 @@ async fn score(
     {
         Ok((config, token)) => (config, token),
         Err(_e) => {
-            cache
+            CACHE
                 .insert(kid, CachedKey::SKRError(std::time::SystemTime::now()))
                 .await;
             let error_msg = "Failed to load the requested OHTTP key identifier.";
@@ -581,6 +581,7 @@ async fn score(
             builder = builder.header(key.as_str(), value.as_bytes());
         }
     }
+    builder = builder.header("x-ms-client-request-id", x_ms_request_id.to_string());
     let stream = Box::pin(unfold(response, |mut response| async move {
         match response.chunk().await {
             Ok(Some(chunk)) => Some((Ok::<Vec<u8>, ohttp::Error>(chunk.to_vec()), response)),
@@ -647,7 +648,7 @@ async fn cache_local_config() -> Res<()> {
         e
     })?;
 
-    cache
+    CACHE
         .insert(
             0,
             CachedKey::ValidKey(
@@ -798,7 +799,7 @@ mod tests {
         let default_guard = tracing::subscriber::set_default(subscriber);
         ::ohttp::init();
 
-        cache.invalidate_all();
+        CACHE.invalidate_all();
 
         default_guard
     }
