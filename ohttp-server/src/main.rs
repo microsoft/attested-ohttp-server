@@ -684,28 +684,22 @@ async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: Uuid) -> Res<()>
         ))));
     }
 
-    // Create a hyper client with Unix socket connector
-    let connector = {
-        let connector_builder = hyper_unix_connector::UnixConnector::default();
-        hyper::Client::builder().build::<_, hyper::Body>(connector_builder)
-    };
+    // Create a client with the UnixClient connector
+    let client: hyper::Client<hyper_unix_connector::UnixClient, hyper::Body> =
+        hyper::Client::builder().build(hyper_unix_connector::UnixClient);
 
-    // For Unix socket communication, use this format where the hostname is irrelevant
-    let url = format!("http://localhost/gpu_attest");
+    // Create a URI that includes the Unix socket path
+    let uri: hyper::Uri = hyper_unix_connector::Uri::new(socket_path, "/gpu_attest").into();
 
-    // Create the request to be sent over the Unix socket
-    let mut req = hyper::Request::builder()
+    // Create the request with appropriate headers
+    let req = hyper::Request::builder()
         .method(hyper::Method::GET)
-        .uri(url)
+        .uri(uri)
         .header("x-request-id", x_ms_request_id.to_string())
         .body(hyper::Body::empty())?;
 
-    // Set the socket scheme in the extension
-    req.extensions_mut()
-        .insert(hyperlocal::Uri::new(socket_path, ""));
-
     // Send the request with error handling
-    let resp = match connector.request(req).await {
+    let resp = match client.request(req).await {
         Ok(response) => response,
         Err(e) => {
             return Err(Box::new(ServerError::GPUAttestationFailure(format!(
@@ -717,7 +711,7 @@ async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: Uuid) -> Res<()>
     // Check response status
     let status = resp.status();
 
-    // Get the response body - using ? operator for simpler error propagation
+    // Get the response body
     let body_bytes = hyper::body::to_bytes(resp.into_body()).await?;
     let body = String::from_utf8(body_bytes.to_vec())?;
 
