@@ -801,7 +801,7 @@ mod tests {
             local_key: false,
             maa_url: None,
             kms_url: None,
-            gpu_attestation_socket: None,
+            gpu_attestation_socket: DEFAULT_GPU_ATTESTATION_SOCKET,
             inject_request_headers: vec![],
         })
     }
