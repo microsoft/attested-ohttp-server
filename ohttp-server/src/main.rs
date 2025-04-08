@@ -180,7 +180,7 @@ async fn get_hpke_private_key_from_kms(
     kms: &str,
     kid: u8,
     token: &str,
-    x_ms_request_id: Uuid,
+    x_ms_request_id: &Uuid,
 ) -> Res<String> {
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
@@ -258,7 +258,7 @@ async fn load_config(
     kms: &str,
     kid: u8,
     token: &str,
-    x_ms_request_id: Uuid,
+    x_ms_request_id: &Uuid,
 ) -> Res<KeyConfig> {
     // The KMS returns the base64-encoded, RSA2048-OAEP-SHA256 encrypted CBOR key
     let key = get_hpke_private_key_from_kms(kms, kid, token, x_ms_request_id).await?;
@@ -295,7 +295,7 @@ async fn load_config_token(
     kms: &str,
     gpu_attestation: &str,
     kid: u8,
-    x_ms_request_id: Uuid,
+    x_ms_request_id: &Uuid,
 ) -> Res<(KeyConfig, String)> {
     // Check if the key configuration is in cache
     if let Some(entry) = CACHE.get(&kid).await {
@@ -349,7 +349,7 @@ async fn load_config_token_safe(
     kms: &str,
     gpu_attestation: &str,
     kid: u8,
-    x_ms_request_id: Uuid,
+    x_ms_request_id: &Uuid,
 ) -> Result<(KeyConfig, String), String> {
     match load_config_token(maa, kms, gpu_attestation, kid, x_ms_request_id).await {
         Ok(r) => Ok(r),
@@ -388,7 +388,7 @@ async fn generate_reply(
     target: Url,
     target_path: Option<&HeaderValue>,
     _mode: Mode,
-    x_ms_request_id: Uuid,
+    x_ms_request_id: &Uuid,
 ) -> Res<(Response, ServerResponse)> {
     let (request, server_response) = ohttp.decapsulate(enc_request)?;
     let bin_request = Message::read_bhttp(&mut Cursor::new(&request[..]))?;
@@ -484,7 +484,7 @@ async fn score(
         &kms_url,
         &gpu_attestation_socket,
         kid,
-        x_ms_request_id,
+        &x_ms_request_id,
     )
     .await
     {
@@ -533,7 +533,7 @@ async fn score(
         target,
         target_path,
         mode,
-        x_ms_request_id,
+        &x_ms_request_id,
     )
     .await
     {
@@ -600,7 +600,7 @@ async fn discover(args: Arc<Args>) -> Result<impl warp::Reply, std::convert::Inf
             .body(Body::from(&b"Not found"[..])));
     }
 
-    match load_config_token(maa_url, kms_url, gpu_attestation_socket, 0, Uuid::nil()).await {
+    match load_config_token(maa_url, kms_url, gpu_attestation_socket, 0, &Uuid::nil()).await {
         Ok((config, _)) => match KeyConfig::encode_list(&[config]) {
             Ok(list) => {
                 let hex = hex::encode(list);
@@ -669,7 +669,7 @@ fn init() {
     ::ohttp::init();
 }
 
-async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: Uuid) -> Res<()> {
+async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: &Uuid) -> Res<()> {
     // Path to the GPU attestation Unix socket
     info!("Attempting GPU attestation at: {}", socket_path);
 
