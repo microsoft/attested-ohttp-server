@@ -44,8 +44,6 @@ use tracing::{error, info, instrument, trace};
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter, FmtSubscriber};
 use uuid::Uuid;
 
-use hyper_unix_connector::{UnixClient, Uri};
-
 const VERSION: &str = "1.0.0";
 
 #[derive(Deserialize)]
@@ -801,7 +799,7 @@ mod tests {
             local_key: false,
             maa_url: None,
             kms_url: None,
-            gpu_attestation_socket: DEFAULT_GPU_ATTESTATION_SOCKET,
+            gpu_attestation_socket: Some(DEFAULT_GPU_ATTESTATION_SOCKET.to_string()),
             inject_request_headers: vec![],
         })
     }
