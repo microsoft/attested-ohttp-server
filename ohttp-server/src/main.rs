@@ -424,7 +424,7 @@ async fn generate_reply(
     let response = client
         .request(method, t)
         .headers(headers)
-        .header("x-ms-client-request-id", x_ms_request_id.to_string())
+        .header("x-request-id", x_ms_request_id.to_string())
         .body(bin_request.content().to_vec())
         .send()
         .await?
@@ -562,6 +562,8 @@ async fn score(
             builder = builder.header(key.as_str(), value.as_bytes());
         }
     }
+    builder = builder.header("x-ms-client-request-id", x_ms_request_id.to_string());
+
     let stream = Box::pin(unfold(response, |mut response| async move {
         match response.chunk().await {
             Ok(Some(chunk)) => Some((Ok::<Vec<u8>, ohttp::Error>(chunk.to_vec()), response)),
