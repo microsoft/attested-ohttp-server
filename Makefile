@@ -36,11 +36,8 @@ format-checks:
 run-server-container: 
 	docker compose -f ./docker/docker-compose-server.yml up
 
-run-server-container-cvm: 
-	docker run --privileged --net=host \
-	-e TARGET=${TARGET} -e MAA_URL=${MAA} -e KMS_URL=${KMS}/app/key -e INJECT_HEADERS=${INJECT_HEADERS} \
-	--mount type=bind,source=/sys/kernel/security,target=/sys/kernel/security \
-	--device /dev/tpmrm0  attested-ohttp-server
+run-server-container-cgpu:
+	docker compose -f ./docker/docker-compose-server-cgpu.yml up
 
 # Whisper deployments
 
