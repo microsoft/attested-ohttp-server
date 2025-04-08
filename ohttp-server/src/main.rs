@@ -480,10 +480,7 @@ async fn score(
 
     let maa_url = args.maa_url.clone().unwrap_or(DEFAULT_MAA_URL.to_string());
     let kms_url = args.kms_url.clone().unwrap_or(DEFAULT_KMS_URL.to_string());
-    let gpu_attestation_socket = args
-        .gpu_attestation_socket
-        .clone()
-        .unwrap_or(DEFAULT_GPU_ATTESTATION_SOCKET.to_string());
+    let gpu_attestation_socket = args.gpu_attestation_socket.as_ref().unwrap();
     let (config, token) = match load_config_token_safe(
         &maa_url,
         &kms_url,
@@ -596,10 +593,7 @@ async fn score(
 async fn discover(args: Arc<Args>) -> Result<impl warp::Reply, std::convert::Infallible> {
     let kms_url = &args.kms_url.clone().unwrap_or(DEFAULT_KMS_URL.to_string());
     let maa_url = &args.maa_url.clone().unwrap_or(DEFAULT_MAA_URL.to_string());
-    let gpu_attestation_socket = &args
-        .gpu_attestation_socket
-        .clone()
-        .unwrap_or(DEFAULT_GPU_ATTESTATION_SOCKET.to_string());
+    let gpu_attestation_socket = &args.gpu_attestation_socket.as_ref().unwrap();
 
     // The discovery endpoint is only enabled for local testing
     if !args.local_key {
