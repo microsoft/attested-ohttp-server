@@ -684,12 +684,9 @@ async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: Uuid) -> Res<()>
         ))));
     }
 
-    // Create a reqwest client with a custom connector for Unix socket
+    // Create a hyper client with Unix socket connector
     let connector = {
-        let connector_builder = hyper_unix_connector::UnixConnector::new();
-        let mut http = hyper::client::HttpConnector::new();
-        http.enforce_http(false);
-
+        let connector_builder = hyper_unix_connector::UnixConnector::default();
         hyper::Client::builder().build::<_, hyper::Body>(connector_builder)
     };
 
@@ -704,9 +701,8 @@ async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: Uuid) -> Res<()>
         .body(hyper::Body::empty())?;
 
     // Set the socket scheme in the extension
-    req.extensions_mut().insert(hyper_unix_connector::Uri(
-        hyperlocal::Uri::new(socket_path, "").into(),
-    ));
+    req.extensions_mut()
+        .insert(hyperlocal::Uri::new(socket_path, ""));
 
     // Send the request with error handling
     let resp = match connector.request(req).await {
