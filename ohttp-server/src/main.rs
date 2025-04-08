@@ -676,40 +676,38 @@ fn init() {
 async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: Uuid) -> Res<()> {
     // Path to the GPU attestation Unix socket
     info!("Attempting GPU attestation at: {}", socket_path);
-    
+
     // Check if the socket file exists
     if !std::path::Path::new(socket_path).exists() {
         return Err(Box::new(ServerError::GPUAttestationFailure(format!(
             "GPU Attestation socket file not found at: {socket_path}"
         ))));
     }
-    
+
     // Create a reqwest client with a custom connector for Unix socket
     let connector = {
         let connector_builder = hyper_unix_connector::UnixConnector::new();
         let mut http = hyper::client::HttpConnector::new();
         http.enforce_http(false);
-        
+
         hyper::Client::builder().build::<_, hyper::Body>(connector_builder)
     };
-    
+
     // For Unix socket communication, use this format where the hostname is irrelevant
     let url = format!("http://localhost/gpu_attest");
-    
+
     // Create the request to be sent over the Unix socket
     let mut req = hyper::Request::builder()
         .method(hyper::Method::GET)
         .uri(url)
         .header("x-request-id", x_ms_request_id.to_string())
         .body(hyper::Body::empty())?;
-    
+
     // Set the socket scheme in the extension
-    req.extensions_mut().insert(
-        hyper_unix_connector::Uri(
-            hyperlocal::Uri::new(socket_path, "").into()
-        )
-    );
-    
+    req.extensions_mut().insert(hyper_unix_connector::Uri(
+        hyperlocal::Uri::new(socket_path, "").into(),
+    ));
+
     // Send the request with error handling
     let resp = match connector.request(req).await {
         Ok(response) => response,
@@ -719,20 +717,20 @@ async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: Uuid) -> Res<()>
             ))));
         }
     };
-    
+
     // Check response status
     let status = resp.status();
-    
+
     // Get the response body - using ? operator for simpler error propagation
     let body_bytes = hyper::body::to_bytes(resp.into_body()).await?;
     let body = String::from_utf8(body_bytes.to_vec())?;
-    
+
     if !status.is_success() {
         return Err(Box::new(ServerError::GPUAttestationFailure(format!(
             "GPU Attestation failed with status code {status}, body = {body}"
         ))));
     }
-    
+
     info!("Local GPU attestation succeeded: {body}");
     Ok(())
 }
