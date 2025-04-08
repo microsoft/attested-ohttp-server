@@ -688,10 +688,6 @@ async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: Uuid) -> Res<()>
         ))));
     }
 
-    // Create a client with the UnixClient connector
-    let client: hyper::Client<hyper_unix_connector::UnixClient, hyper::Body> =
-        hyper::Client::builder().build(hyper_unix_connector::UnixClient);
-
     // Create a URI that includes the Unix socket path
     let uri: hyper::Uri = hyper_unix_connector::Uri::new(socket_path, "/gpu_attest").into();
 
@@ -701,6 +697,10 @@ async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: Uuid) -> Res<()>
         .uri(uri)
         .header("x-request-id", x_ms_request_id.to_string())
         .body(hyper::Body::empty())?;
+
+    // Create a client with the UnixClient connector
+    let client: hyper::Client<hyper_unix_connector::UnixClient, hyper::Body> =
+        hyper::Client::builder().build(hyper_unix_connector::UnixClient);
 
     // Send the request with error handling
     let resp = match client.request(req).await {
