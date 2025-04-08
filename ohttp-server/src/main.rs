@@ -43,6 +43,8 @@ use tracing::{error, info, instrument, trace};
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter, FmtSubscriber};
 use uuid::Uuid;
 
+use hyper_unix_connector::{Uri, UnixClient};
+
 const VERSION: &str = "1.0.0";
 
 #[derive(Deserialize)]
