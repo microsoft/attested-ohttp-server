@@ -720,7 +720,7 @@ async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: Uuid) -> Res<()>
 
     if !status.is_success() {
         return Err(Box::new(ServerError::GPUAttestationFailure(format!(
-            "GPU Attestation failed with status code {status}, body = {body}"
+            "status code = {status}, body = {body}"
         ))));
     }
 
