@@ -19,11 +19,12 @@ use reqwest::{
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use bhttp::{Message, Mode};
 use clap::Parser;
+
 use ohttp::{
     hpke::{Aead, Kdf, Kem},
     Error, KeyConfig, Server as OhttpServer, ServerResponse, SymmetricSuite,
 };
-use warp::{hyper::Body, Filter};
+use warp::{hyper, hyper::Body, Filter};
 
 use tokio::time::{sleep, Duration};
 
@@ -55,7 +56,7 @@ struct ExportedKey {
 const KID_NOT_FOUND_RETRY_TIMER: u64 = 60;
 const DEFAULT_KMS_URL: &str = "https://accconfinferenceprod.confidential-ledger.azure.com/app/key";
 const DEFAULT_MAA_URL: &str = "https://confinfermaaeus2test.eus2.test.attest.azure.net";
-const DEFAULT_GPU_ATTESTATION_URL: &str = "http://localhost:8123/gpu_attest";
+const DEFAULT_GPU_ATTESTATION_SOCKET: &str = "/var/run/gpu-attestation/gpu-attestation.sock";
 const FILTERED_RESPONSE_HEADERS: [&str; 2] = ["content-type", "content-length"];
 
 #[derive(Debug, Parser, Clone)]
@@ -84,6 +85,10 @@ struct Args {
     /// KMS endpoint
     #[arg(long, short = 's')]
     kms_url: Option<String>,
+
+    /// GPU Attestation socket path
+    #[arg(long, short = 'g', default_value = DEFAULT_GPU_ATTESTATION_SOCKET)]
+    gpu_attestation_socket: Option<String>,
 
     #[arg(long, short = 'i')]
     inject_request_headers: Vec<String>,
@@ -288,6 +293,7 @@ async fn load_config(
 async fn load_config_token(
     maa: &str,
     kms: &str,
+    gpu_attestation: &str,
     kid: u8,
     x_ms_request_id: Uuid,
 ) -> Res<(KeyConfig, String)> {
@@ -309,7 +315,7 @@ async fn load_config_token(
     }
 
     // Run local GPU attestation
-    do_gpu_attestation(x_ms_request_id).await?;
+    do_gpu_attestation(gpu_attestation, x_ms_request_id).await?;
 
     let mut attestation_client = match AttestationClient::new() {
         Ok(cli) => cli,
@@ -341,10 +347,11 @@ async fn load_config_token(
 async fn load_config_token_safe(
     maa: &str,
     kms: &str,
+    gpu_attestation: &str,
     kid: u8,
     x_ms_request_id: Uuid,
 ) -> Result<(KeyConfig, String), String> {
-    match load_config_token(maa, kms, kid, x_ms_request_id).await {
+    match load_config_token(maa, kms, gpu_attestation, kid, x_ms_request_id).await {
         Ok(r) => Ok(r),
         Err(e) => {
             let err = format!("Error loading OHTTP key configuration {kid}: {e:?}");
@@ -471,19 +478,27 @@ async fn score(
 
     let maa_url = args.maa_url.clone().unwrap_or(DEFAULT_MAA_URL.to_string());
     let kms_url = args.kms_url.clone().unwrap_or(DEFAULT_KMS_URL.to_string());
-    let (config, token) =
-        match load_config_token_safe(&maa_url, &kms_url, kid, x_ms_request_id).await {
-            Ok((config, token)) => (config, token),
-            Err(_e) => {
-                CACHE
-                    .insert(kid, CachedKey::SKRError(std::time::SystemTime::now()))
-                    .await;
-                let error_msg = "Failed to load the requested OHTTP key identifier.";
-                return Ok(warp::http::Response::builder()
-                    .status(500)
-                    .body(Body::from(error_msg.as_bytes())));
-            }
-        };
+    let gpu_attestation_socket = args.gpu_attestation_socket.as_ref().unwrap();
+    let (config, token) = match load_config_token_safe(
+        &maa_url,
+        &kms_url,
+        &gpu_attestation_socket,
+        kid,
+        x_ms_request_id,
+    )
+    .await
+    {
+        Ok((config, token)) => (config, token),
+        Err(_e) => {
+            CACHE
+                .insert(kid, CachedKey::SKRError(std::time::SystemTime::now()))
+                .await;
+            let error_msg = "Failed to load the requested OHTTP key identifier.";
+            return Ok(warp::http::Response::builder()
+                .status(500)
+                .body(Body::from(error_msg.as_bytes())));
+        }
+    };
 
     let ohttp = match OhttpServer::new(config) {
         Ok(server) => server,
@@ -576,6 +591,7 @@ async fn score(
 async fn discover(args: Arc<Args>) -> Result<impl warp::Reply, std::convert::Infallible> {
     let kms_url = &args.kms_url.clone().unwrap_or(DEFAULT_KMS_URL.to_string());
     let maa_url = &args.maa_url.clone().unwrap_or(DEFAULT_MAA_URL.to_string());
+    let gpu_attestation_socket = &args.gpu_attestation_socket.as_ref().unwrap();
 
     // The discovery endpoint is only enabled for local testing
     if !args.local_key {
@@ -584,7 +600,7 @@ async fn discover(args: Arc<Args>) -> Result<impl warp::Reply, std::convert::Inf
             .body(Body::from(&b"Not found"[..])));
     }
 
-    match load_config_token(maa_url, kms_url, 0, Uuid::nil()).await {
+    match load_config_token(maa_url, kms_url, gpu_attestation_socket, 0, Uuid::nil()).await {
         Ok((config, _)) => match KeyConfig::encode_list(&[config]) {
             Ok(list) => {
                 let hex = hex::encode(list);
@@ -653,27 +669,47 @@ fn init() {
     ::ohttp::init();
 }
 
-async fn do_gpu_attestation(x_ms_request_id: Uuid) -> Res<()> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
-        .build()?;
+async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: Uuid) -> Res<()> {
+    // Path to the GPU attestation Unix socket
+    info!("Attempting GPU attestation at: {}", socket_path);
 
-    let resp = match client
-        .get(DEFAULT_GPU_ATTESTATION_URL)
+    // Check if the socket file exists
+    if !std::path::Path::new(socket_path).exists() {
+        return Err(Box::new(ServerError::GPUAttestationFailure(format!(
+            "GPU Attestation socket file not found at: {socket_path}"
+        ))));
+    }
+
+    // Create a URI that includes the Unix socket path
+    let uri: hyper::Uri = hyper_unix_connector::Uri::new(socket_path, "/gpu_attest").into();
+
+    // Create the request with appropriate headers
+    let req = hyper::Request::builder()
+        .method(hyper::Method::GET)
+        .uri(uri)
         .header("x-request-id", x_ms_request_id.to_string())
-        .send()
-        .await
-    {
+        .body(hyper::Body::empty())?;
+
+    // Create a client with the UnixClient connector
+    let client: hyper::Client<hyper_unix_connector::UnixClient, hyper::Body> =
+        hyper::Client::builder().build(hyper_unix_connector::UnixClient);
+
+    // Send the request with error handling
+    let resp = match client.request(req).await {
         Ok(response) => response,
         Err(e) => {
             return Err(Box::new(ServerError::GPUAttestationFailure(format!(
-                "Failed to connect to GPU Attestation Service: {e}"
+                "Failed to connect to GPU Attestation Service at {socket_path}: {e}"
             ))));
         }
     };
 
+    // Check response status
     let status = resp.status();
-    let body = resp.text().await?;
+
+    // Get the response body
+    let body_bytes = hyper::body::to_bytes(resp.into_body()).await?;
+    let body = String::from_utf8(body_bytes.to_vec())?;
 
     if !status.is_success() {
         return Err(Box::new(ServerError::GPUAttestationFailure(format!(
@@ -763,6 +799,7 @@ mod tests {
             local_key: false,
             maa_url: None,
             kms_url: None,
+            gpu_attestation_socket: Some(DEFAULT_GPU_ATTESTATION_SOCKET.to_string()),
             inject_request_headers: vec![],
         })
     }

@@ -32,6 +32,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3.18", features = ["default", "json", "env-filter"] }
 thiserror = "1"
 uuid = { version = "1.0", features = ["v4"] }
+hyper-unix-connector = "0.2.2"
 
 [dependencies.cgpuvm-attest]
 path= "../cgpuvm-attest"

@@ -5,7 +5,7 @@ export TARGET ?= http://127.0.0.1:3000
 export TARGET_PATH ?= '/whisper'
 export SCORING_ENDPOINT ?= 'http://localhost:9443/score'
 
-export INPUT_DIR ?= ${PWD}/examples
+export INPUT_DIR ?= $(CURDIR)/examples
 export MOUNTED_INPUT_DIR ?= /test
 export INPUT_FILE ?= audio.mp3
 export INJECT_HEADERS ?= openai-internal-enableasrsupport
@@ -36,10 +36,11 @@ format-checks:
 run-server-container: 
 	docker compose -f ./docker/docker-compose-server.yml up
 
-run-server-container-cvm: 
+run-server-container-cvm:
 	docker run --privileged --net=host \
 	-e TARGET=${TARGET} -e MAA_URL=${MAA} -e KMS_URL=${KMS}/app/key -e INJECT_HEADERS=${INJECT_HEADERS} \
 	--mount type=bind,source=/sys/kernel/security,target=/sys/kernel/security \
+	--mount type=bind,source=/var/run/gpu-attestation,target=/var/run/gpu-attestation \
 	--device /dev/tpmrm0  attested-ohttp-server
 
 # Whisper deployments
