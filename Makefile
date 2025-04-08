@@ -5,7 +5,7 @@ export TARGET ?= http://127.0.0.1:3000
 export TARGET_PATH ?= '/whisper'
 export SCORING_ENDPOINT ?= 'http://localhost:9443/score'
 
-export INPUT_DIR ?= ${PWD}/examples
+export INPUT_DIR ?= $(CURDIR)/examples
 export MOUNTED_INPUT_DIR ?= /test
 export INPUT_FILE ?= audio.mp3
 export INJECT_HEADERS ?= openai-internal-enableasrsupport
