@@ -524,7 +524,7 @@ async fn score(
     for (key, value) in &inject_headers {
         info!("    {}: {}", key, value.to_str().unwrap());
     }
-    let target_path = headers.get("enginetarget");
+    let target_path = None; // headers.get("enginetarget");
     let mode = args.mode();
     let (response, server_response) = match generate_reply(
         &ohttp,
