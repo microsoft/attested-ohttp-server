@@ -24,7 +24,12 @@ extern "C" {
         endpoint_url: *const c_char,
     ) -> c_int;
 
-    fn ga_decrypt(pAttestationClient: *mut c_void, cipher: *mut u8, len: *mut size_t, pcr_bitmask: u32) -> c_int;
+    fn ga_decrypt(
+        pAttestationClient: *mut c_void,
+        cipher: *mut u8,
+        len: *mut size_t,
+        pcr_bitmask: u32,
+    ) -> c_int;
 }
 
 pub struct AttestationClient {
@@ -80,7 +85,12 @@ impl AttestationClient {
         unsafe {
             let mut buf = Vec::from(data);
             let mut len = data.len();
-            let rc = ga_decrypt(self.p_attestation_client, buf.as_mut_ptr(), &mut len, pcr_bitmask);
+            let rc = ga_decrypt(
+                self.p_attestation_client,
+                buf.as_mut_ptr(),
+                &mut len,
+                pcr_bitmask,
+            );
 
             if rc == 0 {
                 buf.set_len(len);
