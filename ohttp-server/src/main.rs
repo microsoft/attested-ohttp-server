@@ -58,6 +58,7 @@ const DEFAULT_KMS_URL: &str = "https://accconfinferenceprod.confidential-ledger.
 const DEFAULT_MAA_URL: &str = "https://confinfermaaeus2test.eus2.test.attest.azure.net";
 const DEFAULT_GPU_ATTESTATION_SOCKET: &str = "/var/run/gpu-attestation/gpu-attestation.sock";
 const FILTERED_RESPONSE_HEADERS: [&str; 2] = ["content-type", "content-length"];
+const PCR0_TO_15_BITMASK: u32  = 0xFFFF;
 
 #[derive(Debug, Parser, Clone)]
 #[command(name = "ohttp-server", about = "Serve oblivious HTTP requests.")]
@@ -246,7 +247,7 @@ fn fetch_maa_token(attestation_client: &mut AttestationClient, maa: &str) -> Res
     // Get MAA token from CVM guest attestation library
     info!("Fetching MAA token from {maa}");
 
-    let t = attestation_client.attest("{}".as_bytes(), 0xff, maa)?;
+    let t = attestation_client.attest("{}".as_bytes(), PCR0_TO_15_BITMASK, maa)?;
 
     let token = String::from_utf8(t).unwrap();
     trace!("Fetched MAA token: {token}");
@@ -263,7 +264,7 @@ async fn load_config(
     // The KMS returns the base64-encoded, RSA2048-OAEP-SHA256 encrypted CBOR key
     let key = get_hpke_private_key_from_kms(kms, kid, token, x_ms_request_id).await?;
     let enc_key: &[u8] = &b64.decode(&key)?;
-    let decrypted_key = match attestation_client.decrypt(enc_key) {
+    let decrypted_key = match attestation_client.decrypt(enc_key, PCR0_TO_15_BITMASK) {
         Ok(k) => k,
         _ => Err(Box::new(ServerError::TPMDecryptionFailure))?,
     };
