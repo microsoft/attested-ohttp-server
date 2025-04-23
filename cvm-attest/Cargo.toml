@@ -1,0 +1,20 @@
+[package]
+name = "cvm-attest"
+version = "0.1.0"
+authors = ["Antoine Delignat-Lavaud <antdl@microsoft.com>"]
+edition = "2021"
+license = "MIT"
+description = "Python FFI for TDX CVM Attestation"
+
+[lib]
+name = "cvm_attest"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tracing = "0.1"
+thiserror = "1"
+serde_json = "1.0" # Added for potential JSON handling
+
+[dependencies.pyo3]
+version = "0.24.2"
+features = ["auto-initialize"]

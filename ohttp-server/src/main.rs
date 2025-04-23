@@ -28,7 +28,7 @@ use warp::{hyper, hyper::Body, Filter};
 
 use tokio::time::{sleep, Duration};
 
-use cgpuvm_attest::AttestationClient;
+use cvm_attest::{get_token};
 use reqwest::Client;
 
 type Res<T> = Result<T, Box<dyn std::error::Error>>;
@@ -191,7 +191,7 @@ async fn get_hpke_private_key_from_kms(
     let mut retries = 0;
 
     loop {
-        let url = format!("{kms}?kid={kid}&encrypted=true");
+        let url = format!("{kms}?kid={kid}");
         info!("Sending SKR request to {url}");
 
         // Get HPKE private key from Azure KMS
@@ -242,19 +242,18 @@ async fn get_hpke_private_key_from_kms(
     }
 }
 
-fn fetch_maa_token(attestation_client: &mut AttestationClient, maa: &str) -> Res<String> {
+fn fetch_maa_token(maa: &str) -> Res<String> {
     // Get MAA token from CVM guest attestation library
     info!("Fetching MAA token from {maa}");
 
-    let t = attestation_client.attest("{}".as_bytes(), 0xff, maa)?;
-
+    let t = get_token("{}".as_bytes(), maa)?;
     let token = String::from_utf8(t).unwrap();
+
     trace!("Fetched MAA token: {token}");
     Ok(token)
 }
 
 async fn load_config(
-    attestation_client: &mut AttestationClient,
     kms: &str,
     kid: u8,
     token: &str,
@@ -262,11 +261,14 @@ async fn load_config(
 ) -> Res<KeyConfig> {
     // The KMS returns the base64-encoded, RSA2048-OAEP-SHA256 encrypted CBOR key
     let key = get_hpke_private_key_from_kms(kms, kid, token, x_ms_request_id).await?;
-    let enc_key: &[u8] = &b64.decode(&key)?;
-    let decrypted_key = match attestation_client.decrypt(enc_key) {
-        Ok(k) => k,
-        _ => Err(Box::new(ServerError::TPMDecryptionFailure))?,
-    };
+    let decrypted_key = hex::decode(key.as_bytes())?;
+    
+    //info!("Decoding SKR key: {key}");
+    //let enc_key: &[u8] = &b64.decode(&key)?;
+    //let decrypted_key = match attestation_client.decrypt(enc_key) {
+        //Ok(k) => k,
+        //_ => Err(Box::new(ServerError::TPMDecryptionFailure))?,
+    //};
 
     let (d, returned_kid) = parse_cbor_key(&decrypted_key, kid)?;
     let sk = match d {
@@ -315,17 +317,11 @@ async fn load_config_token(
     }
 
     // Run local GPU attestation
-    do_gpu_attestation(gpu_attestation, x_ms_request_id).await?;
+    //do_gpu_attestation(gpu_attestation, x_ms_request_id).await?;
 
-    let mut attestation_client = match AttestationClient::new() {
-        Ok(cli) => cli,
-        _ => Err(Box::new(ServerError::AttestationLibraryInit))?,
-    };
-
-    let token = fetch_maa_token(&mut attestation_client, maa)?;
+    let token = fetch_maa_token(maa)?;
 
     let config = load_config(
-        &mut attestation_client,
         kms,
         kid,
         token.as_str(),

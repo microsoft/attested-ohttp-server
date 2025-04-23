@@ -34,8 +34,8 @@ thiserror = "1"
 uuid = { version = "1.0", features = ["v4"] }
 hyper-unix-connector = "0.2.2"
 
-[dependencies.cgpuvm-attest]
-path= "../cgpuvm-attest"
+[dependencies.cvm-attest]
+path= "../cvm-attest"
 features = []
 
 [dependencies.bhttp]
@@ -48,6 +48,9 @@ git = "https://github.com/microsoft/ohttp.git"
 branch = "main"
 features = ["server"]
 default-features = false
+
+[build-dependencies]
+pyo3-build-config = "0.24.2"
 
 [dev-dependencies]
 hyper = "0.14"  # Use the latest patch version for the 0.14.x series
