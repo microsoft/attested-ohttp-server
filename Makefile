@@ -39,9 +39,10 @@ run-server-container:
 run-server-container-cvm:
 	docker run --privileged --net=host \
 	-e TARGET=${TARGET} -e MAA_URL=${MAA} -e KMS_URL=${KMS}/app/key -e INJECT_HEADERS=${INJECT_HEADERS} \
-	--mount type=bind,source=/sys/kernel/security,target=/sys/kernel/security \
+	--mount type=bind,source=/sys/kernel/security,target=/sys/kernel/security,readonly \
+	--mount type=bind,source=/dev/tpmrm0,target=/dev/tpmrm0,readonly \
 	--mount type=bind,source=/var/run/gpu-attestation,target=/var/run/gpu-attestation \
-	--device /dev/tpmrm0  attested-ohttp-server
+	attested-ohttp-server
 
 # Whisper deployments
 
