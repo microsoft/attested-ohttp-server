@@ -1,7 +1,7 @@
 FROM rust:1.84.1 AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -yq openssl libssl-dev libtss2-dev
+RUN apt-get update && apt-get install -yq openssl libssl-dev libtss2-dev libpython3-dev
 
 WORKDIR /usr/src/ohttp
 COPY . .
