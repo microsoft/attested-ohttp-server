@@ -464,14 +464,14 @@ async fn score(
     info!("Received encapsulated score request for target {}", target);
     info!("Request headers length = {}", headers.len());
     let return_token = headers.contains_key("x-attestation-token");
+    let mut builder = warp::http::Response::builder()
+        .header("x-ms-client-request-id", x_ms_request_id.to_string());
     // The KID is normally the first byte of the request
     let kid = match body.first().copied() {
         None => {
             let error_msg = "No key found in request.";
             error!("{error_msg}");
-            return Ok(warp::http::Response::builder()
-                .status(500)
-                .body(Body::from(error_msg.as_bytes())));
+            return Ok(builder.status(500).body(Body::from(error_msg.as_bytes())));
         }
         Some(kid) => kid,
     };
@@ -494,9 +494,7 @@ async fn score(
                 .insert(kid, CachedKey::SKRError(std::time::SystemTime::now()))
                 .await;
             let error_msg = "Failed to load the requested OHTTP key identifier.";
-            return Ok(warp::http::Response::builder()
-                .status(500)
-                .body(Body::from(error_msg.as_bytes())));
+            return Ok(builder.status(500).body(Body::from(error_msg.as_bytes())));
         }
     };
 
@@ -505,9 +503,7 @@ async fn score(
         Err(e) => {
             let error_msg = "Failed to create OHTTP server from config.";
             error!("{error_msg} {e}");
-            return Ok(warp::http::Response::builder()
-                .status(500)
-                .body(Body::from(error_msg.as_bytes())));
+            return Ok(builder.status(500).body(Body::from(error_msg.as_bytes())));
         }
     };
 
@@ -541,19 +537,16 @@ async fn score(
         Err(e) => {
             error!(e);
             if let Ok(oe) = e.downcast::<::ohttp::Error>() {
-                return Ok(warp::http::Response::builder()
+                return Ok(builder
                     .status(422)
                     .body(Body::from(format!("Error: {oe:?}"))));
             }
             let error_msg = "Request error.";
             error!("{error_msg}");
-            return Ok(warp::http::Response::builder()
-                .status(400)
-                .body(Body::from(error_msg.as_bytes())));
+            return Ok(builder.status(400).body(Body::from(error_msg.as_bytes())));
         }
     };
-    let mut builder =
-        warp::http::Response::builder().header("Content-Type", "message/ohttp-chunked-res");
+    builder = builder.header("Content-Type", "message/ohttp-chunked-res");
     // Add HTTP header with MAA token, for client auditing.
     if return_token {
         builder = builder.header(
@@ -577,7 +570,7 @@ async fn score(
             builder = builder.header(key.as_str(), value.as_bytes());
         }
     }
-    builder = builder.header("x-ms-client-request-id", x_ms_request_id.to_string());
+
     let stream = Box::pin(unfold(response, |mut response| async move {
         match response.chunk().await {
             Ok(Some(chunk)) => Some((Ok::<Vec<u8>, ohttp::Error>(chunk.to_vec()), response)),
