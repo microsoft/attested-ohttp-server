@@ -709,15 +709,15 @@ async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: &Uuid) -> Res<()
 
     // Get the response body
     let body_bytes = hyper::body::to_bytes(resp.into_body()).await?;
-    let body = String::from_utf8(body_bytes.to_vec())?;
+    let body_b64 = base64::engine::general_purpose::STANDARD.encode(&body_bytes);
 
     if !status.is_success() {
         return Err(Box::new(ServerError::GPUAttestationFailure(format!(
-            "status code = {status}, body = {body}"
+            "status code = {status}, body = {body_b64}"
         ))));
     }
 
-    info!("Local GPU attestation succeeded: {body}");
+    info!("Local GPU attestation succeeded: {body_b64}");
     Ok(())
 }
 
