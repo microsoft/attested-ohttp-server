@@ -906,12 +906,20 @@ mod tests {
 
         let url: String = URL_SCORE.to_string();
         let target_path: String = TARGET_PATH.to_string();
-        let headers: Vec<String> = vec![];
-        let form_fields: Vec<String> = vec![String::from("file=@../examples/audio.mp3")];
-        let outer_headers: Vec<String> = vec![];
+        let headers = None;
+        let data = None;
+        let form_fields = Some(vec![String::from("file=@../examples/audio.mp3")]);
+        let outer_headers = None;
 
         let mut response = ohttp_client
-            .post(&url, &target_path, &headers, &form_fields, &outer_headers)
+            .post(
+                &url,
+                &target_path,
+                &headers,
+                &data,
+                &form_fields,
+                &outer_headers,
+            )
             .await
             .expect("Could not post to scoring endpoint");
 
@@ -1022,12 +1030,20 @@ mod tests {
 
         let mut url: String = "http://localhost:9443/scoreee".to_string();
         let mut target_path: String = TARGET_PATH.to_string();
-        let headers: Vec<String> = vec![];
-        let mut form_fields: Vec<String> = vec![String::from("file=@../examples/audio.mp3")];
-        let outer_headers: Vec<String> = vec![];
+        let headers = None;
+        let data = None;
+        let mut form_fields = Some(vec![String::from("file=@../examples/audio.mp3")]);
+        let outer_headers = None;
 
         let mut response = ohttp_client
-            .post(&url, &target_path, &headers, &form_fields, &outer_headers)
+            .post(
+                &url,
+                &target_path,
+                &headers,
+                &data,
+                &form_fields,
+                &outer_headers,
+            )
             .await
             .unwrap();
         let status = response.status();
@@ -1044,7 +1060,14 @@ mod tests {
         target_path = "/whisperrr".to_string();
 
         response = ohttp_client
-            .post(&url, &target_path, &headers, &form_fields, &outer_headers)
+            .post(
+                &url,
+                &target_path,
+                &headers,
+                &data,
+                &form_fields,
+                &outer_headers,
+            )
             .await
             .expect("Could not post to scoring endpoint");
 
@@ -1059,10 +1082,17 @@ mod tests {
             .expect("Could not create new ohttp client builder");
 
         target_path = TARGET_PATH.to_string();
-        form_fields = vec![String::from("file=@../examples/audioo.mp3")];
+        form_fields = Some(vec![String::from("file=@../examples/audioo.mp3")]);
 
         if ohttp_client
-            .post(&url, &target_path, &headers, &form_fields, &outer_headers)
+            .post(
+                &url,
+                &target_path,
+                &headers,
+                &data,
+                &form_fields,
+                &outer_headers,
+            )
             .await
             .is_ok()
         {
@@ -1137,12 +1167,20 @@ mod tests {
 
         let url: String = URL_SCORE.to_string();
         let target_path: String = TARGET_PATH.to_string();
-        let headers: Vec<String> = vec![];
-        let form_fields: Vec<String> = vec![String::from("file=@../examples/audio.mp3")];
-        let outer_headers: Vec<String> = vec![];
+        let headers = None;
+        let data = None;
+        let form_fields = Some(vec![String::from("file=@../examples/audio.mp3")]);
+        let outer_headers = None;
 
         let mut response = ohttp_client
-            .post(&url, &target_path, &headers, &form_fields, &outer_headers)
+            .post(
+                &url,
+                &target_path,
+                &headers,
+                &data,
+                &form_fields,
+                &outer_headers,
+            )
             .await
             .expect("Could not post to scoring endpoint");
 
@@ -1211,12 +1249,20 @@ mod tests {
 
         let url: String = URL_SCORE.to_string();
         let target_path: String = TARGET_PATH.to_string();
-        let headers: Vec<String> = vec![];
-        let form_fields: Vec<String> = vec![String::from("file=@../examples/audio.mp3")];
-        let outer_headers: Vec<String> = vec![];
+        let headers = None;
+        let data = None;
+        let form_fields = Some(vec![String::from("file=@../examples/audio.mp3")]);
+        let outer_headers = None;
 
         let response = ohttp_client
-            .post(&url, &target_path, &headers, &form_fields, &outer_headers)
+            .post(
+                &url,
+                &target_path,
+                &headers,
+                &data,
+                &form_fields,
+                &outer_headers,
+            )
             .await
             .expect("Could not post to scoring endpoint");
 
