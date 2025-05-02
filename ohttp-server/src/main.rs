@@ -382,10 +382,7 @@ fn get_headers_from_request(bin_request: &Message) -> HeaderMap {
     headers
 }
 
-fn get_decapsulated_request(
-    ohttp: &OhttpServer,
-    enc_request: &[u8],
-) -> Res<(Message, ServerResponse)> {
+fn decapsulate_request(ohttp: &OhttpServer, enc_request: &[u8]) -> Res<(Message, ServerResponse)> {
     let (request, server_response) = ohttp.decapsulate(enc_request)?;
     let bin_request = Message::read_bhttp(&mut Cursor::new(&request[..]))?;
     Ok((bin_request, server_response))
@@ -527,7 +524,7 @@ async fn score(
         info!("    {}: {}", key, value.to_str().unwrap());
     }
 
-    let (request, server_response) = match get_decapsulated_request(&ohttp, &body[..]) {
+    let (request, server_response) = match decapsulate_request(&ohttp, &body[..]) {
         Ok(s) => s,
         Err(e) => {
             error!("{:?}", e);
@@ -557,16 +554,10 @@ async fn score(
         Ok(s) => s,
         Err(e) => {
             error!(e);
-            let error_msg = e.to_string().into_bytes();
-            match server_response.encapsulate(&error_msg) {
-                Ok(s) => return Ok(builder.status(400).body(Body::from(s))),
-                Err(e) => {
-                    error!("{:?}", e);
-                    return Ok(builder
-                        .status(400)
-                        .body(Body::from(format!("Error: {e:?}"))));
-                }
-            }
+            let chunk = e.to_string().into_bytes();
+            let stream = futures::stream::once(async { Ok::<Vec<u8>, ohttp::Error>(chunk) });
+            let stream = server_response.encapsulate_stream(stream);
+            return Ok(builder.status(400).body(Body::wrap_stream(stream)));
         }
     };
 
