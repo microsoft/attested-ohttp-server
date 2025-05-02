@@ -527,7 +527,7 @@ async fn score(
         info!("    {}: {}", key, value.to_str().unwrap());
     }
 
-    let (bin_request, server_response) = match get_decapsulated_request(&ohttp, &body[..]) {
+    let (request, server_response) = match get_decapsulated_request(&ohttp, &body[..]) {
         Ok(s) => s,
         Err(e) => {
             error!("{:?}", e);
@@ -546,7 +546,7 @@ async fn score(
     let mode = args.mode();
     let response = match post_request_to_target(
         inject_headers,
-        &bin_request,
+        &request,
         target,
         target_path,
         mode,
