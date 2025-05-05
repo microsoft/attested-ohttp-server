@@ -382,18 +382,20 @@ fn get_headers_from_request(bin_request: &Message) -> HeaderMap {
     headers
 }
 
-async fn generate_reply(
-    ohttp: &OhttpServer,
+fn decapsulate_request(ohttp: &OhttpServer, enc_request: &[u8]) -> Res<(Message, ServerResponse)> {
+    let (request, server_response) = ohttp.decapsulate(enc_request)?;
+    let bin_request = Message::read_bhttp(&mut Cursor::new(&request[..]))?;
+    Ok((bin_request, server_response))
+}
+
+async fn post_request_to_target(
     inject_headers: HeaderMap,
-    enc_request: &[u8],
+    bin_request: &Message,
     target: Url,
     target_path: Option<&HeaderValue>,
     _mode: Mode,
     x_ms_request_id: &Uuid,
-) -> Res<(Response, ServerResponse)> {
-    let (request, server_response) = ohttp.decapsulate(enc_request)?;
-    let bin_request = Message::read_bhttp(&mut Cursor::new(&request[..]))?;
-
+) -> Res<Response> {
     let method: Method = if let Some(method_bytes) = bin_request.control().method() {
         Method::from_bytes(method_bytes)?
     } else {
@@ -438,7 +440,7 @@ async fn generate_reply(
         .await?
         .error_for_status()?;
 
-    Ok((response, server_response))
+    Ok(response)
 }
 
 // Compute the set of headers that need to be injected into the inner request
@@ -521,22 +523,11 @@ async fn score(
     for (key, value) in &inject_headers {
         info!("    {}: {}", key, value.to_str().unwrap());
     }
-    let target_path = headers.get("enginetarget");
-    let mode = args.mode();
-    let (response, server_response) = match generate_reply(
-        &ohttp,
-        inject_headers,
-        &body[..],
-        target,
-        target_path,
-        mode,
-        &x_ms_request_id,
-    )
-    .await
-    {
+
+    let (request, server_response) = match decapsulate_request(&ohttp, &body[..]) {
         Ok(s) => s,
         Err(e) => {
-            error!(e);
+            error!("{:?}", e);
             if let Ok(oe) = e.downcast::<::ohttp::Error>() {
                 return Ok(builder
                     .status(422)
@@ -547,6 +538,29 @@ async fn score(
             return Ok(builder.status(400).body(Body::from(error_msg.as_bytes())));
         }
     };
+
+    let target_path = headers.get("enginetarget");
+    let mode = args.mode();
+    let response = match post_request_to_target(
+        inject_headers,
+        &request,
+        target,
+        target_path,
+        mode,
+        &x_ms_request_id,
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            error!(e);
+            let chunk = e.to_string().into_bytes();
+            let stream = futures::stream::once(async { Ok::<Vec<u8>, ohttp::Error>(chunk) });
+            let stream = server_response.encapsulate_stream(stream);
+            return Ok(builder.status(400).body(Body::wrap_stream(stream)));
+        }
+    };
+
     builder = builder.header("Content-Type", "message/ohttp-chunked-res");
     // Add HTTP header with MAA token, for client auditing.
     if return_token {
