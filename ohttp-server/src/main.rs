@@ -1049,7 +1049,7 @@ mod tests {
         let mut form_fields = Some(vec![String::from("file=@../examples/audio.mp3")]);
         let outer_headers = None;
 
-        let mut response = ohttp_client
+        let response = ohttp_client
             .post(
                 &url,
                 &target_path,
@@ -1073,7 +1073,7 @@ mod tests {
         url = URL_SCORE.to_string();
         target_path = "/whisperrr".to_string();
 
-        response = ohttp_client
+        match ohttp_client
             .post(
                 &url,
                 &target_path,
@@ -1083,11 +1083,18 @@ mod tests {
                 &outer_headers,
             )
             .await
-            .expect("Could not post to scoring endpoint");
-
-        let status = response.status();
-        info!("status: {status}");
-        assert!(!status.is_success());
+        {
+            Ok(response) => {
+                if status.is_success() {
+                    panic!("This should never happen!");
+                }
+                let decapsulated_response = response.text().await.unwrap();
+                assert_eq!(decapsulated_response, "HTTP status client error (404 Not Found) for url (http://127.0.0.1:3000/whisperrr)");
+            }
+            Err(_e) => {
+                panic!("This should never happen!");
+            }
+        };
 
         let ohttp_client = OhttpClientBuilder::new()
             .config(&hex_arg)
