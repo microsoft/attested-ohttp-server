@@ -440,6 +440,12 @@ async fn post_request_to_target(
         .await?
         .error_for_status()?;
 
+        if !response.status().is_success() {
+            let error_msg = format!("{}", response.text().await.unwrap_or_default());
+            error!(error_msg);
+            return Err(Box::new(ServerError::TargetRequestError(error_msg)));
+        }
+
     Ok(response)
 }
 
@@ -768,9 +774,10 @@ async fn main() -> Res<()> {
     Ok(())
 }
 
+
+
 #[cfg(test)]
 mod tests {
-    use super::*;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use ohttp_client::{HexArg, OhttpClientBuilder};
     use std::{
