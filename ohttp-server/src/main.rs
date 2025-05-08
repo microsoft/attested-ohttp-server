@@ -18,7 +18,7 @@ use reqwest::{
 
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use bhttp::{Message, Mode};
-use clap::Parser;
+use clap::{error, Parser};
 
 use ohttp::{
     hpke::{Aead, Kdf, Kem},
@@ -437,8 +437,12 @@ async fn post_request_to_target(
         .header("x-request-id", x_ms_request_id.to_string())
         .body(bin_request.content().to_vec())
         .send()
-        .await?
-        .error_for_status()?;
+        .await?;
+
+    if !response.status().is_success() {
+        let error_msg = format!("{}{}", response.status(), response.text().await.unwrap_or_default());
+        return Err(Box::new(ServerError::TargetRequestError(error_msg)));
+    }
 
     Ok(response)
 }
@@ -553,7 +557,7 @@ async fn score(
     {
         Ok(s) => s,
         Err(e) => {
-            error!(e);
+            error!("{}", b64.encode(e.to_string()));
             let chunk = e.to_string().into_bytes();
             let stream = futures::stream::once(async { Ok::<Vec<u8>, ohttp::Error>(chunk) });
             let stream = server_response.encapsulate_stream(stream);
