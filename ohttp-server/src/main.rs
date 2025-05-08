@@ -440,6 +440,12 @@ async fn post_request_to_target(
         .await?
         .error_for_status()?;
 
+        if !response.status().is_success() {
+            let error_msg = format!("{}", response.text().await.unwrap_or_default());
+            error!(error_msg);
+            return Err(Box::new(ServerError::TargetRequestError(error_msg)));
+        }
+
     Ok(response)
 }
 
@@ -768,9 +774,10 @@ async fn main() -> Res<()> {
     Ok(())
 }
 
+
+
 #[cfg(test)]
 mod tests {
-    use super::*;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use ohttp_client::{HexArg, OhttpClientBuilder};
     use std::{
@@ -1049,7 +1056,7 @@ mod tests {
         let mut form_fields = Some(vec![String::from("file=@../examples/audio.mp3")]);
         let outer_headers = None;
 
-        let mut response = ohttp_client
+        let response = ohttp_client
             .post(
                 &url,
                 &target_path,
@@ -1073,7 +1080,7 @@ mod tests {
         url = URL_SCORE.to_string();
         target_path = "/whisperrr".to_string();
 
-        response = ohttp_client
+        match ohttp_client
             .post(
                 &url,
                 &target_path,
@@ -1083,11 +1090,18 @@ mod tests {
                 &outer_headers,
             )
             .await
-            .expect("Could not post to scoring endpoint");
-
-        let status = response.status();
-        info!("status: {status}");
-        assert!(!status.is_success());
+        {
+            Ok(response) => {
+                if status.is_success() {
+                    panic!("This should never happen!");
+                }
+                let decapsulated_response = response.text().await.unwrap();
+                assert_eq!(decapsulated_response, "HTTP status client error (404 Not Found) for url (http://127.0.0.1:3000/whisperrr)");
+            }
+            Err(_e) => {
+                panic!("This should never happen!");
+            }
+        };
 
         let ohttp_client = OhttpClientBuilder::new()
             .config(&hex_arg)
