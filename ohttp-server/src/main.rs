@@ -44,7 +44,7 @@ use tracing::{error, info, instrument, trace};
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter, FmtSubscriber};
 use uuid::Uuid;
 
-const VERSION: &str = "1.0.0";
+const VERSION: &str = "0.0.74.2";
 
 #[derive(Deserialize)]
 struct ExportedKey {
