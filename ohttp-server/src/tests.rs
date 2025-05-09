@@ -252,7 +252,7 @@ fn get_service_cert_path_from_str(cart_value: &str) -> Option<PathBuf> {
 
 #[tokio::test]
 // Invalid client paramaters for local testing
-async fn local_test_invalid_client_paramaters() {
+async fn local_test_invalid_client_url() {
     let _default_guard = init_test();
 
     let mut args = create_args();
@@ -275,14 +275,14 @@ async fn local_test_invalid_client_paramaters() {
         .await
         .expect("Could not create new ohttp client builder");
 
-    let mut url: String = "http://localhost:9443/scoreee".to_string();
-    let mut target_path: String = TARGET_PATH.to_string();
+    let url: String = "http://localhost:9443/scoreee".to_string();
+    let target_path: String = TARGET_PATH.to_string();
     let headers = None;
     let data = None;
-    let mut form_fields = Some(vec![String::from("file=@../examples/audio.mp3")]);
+    let form_fields = Some(vec![String::from("file=@../examples/audio.mp3")]);
     let outer_headers = None;
 
-    let mut response = ohttp_client
+    let response = ohttp_client
         .post(
             &url,
             &target_path,
@@ -297,16 +297,42 @@ async fn local_test_invalid_client_paramaters() {
     info!("status: {status}");
     assert!(!status.is_success());
 
+    shutdown_server(server_handle, shutdown_channel_sender).await;
+}
+
+#[tokio::test]
+// Invalid client paramaters for local testing
+async fn local_test_invalid_target_path() {
+    let _default_guard = init_test();
+
+    let mut args = create_args();
+
+    if let Some(args_mut) = Arc::get_mut(&mut args) {
+        args_mut.local_key = true;
+    }
+
+    cache_local_config()
+        .await
+        .expect("Could not cache local config");
+
+    let (server_handle, shutdown_channel_sender) = start_server(&args);
+
+    let hex_arg = get_config_from_discover_endpoint(URL_DISCOVER).await;
+
     let ohttp_client = OhttpClientBuilder::new()
         .config(&hex_arg)
         .build()
         .await
         .expect("Could not create new ohttp client builder");
 
-    url = URL_SCORE.to_string();
-    target_path = "/whisperrr".to_string();
+    let url = URL_SCORE.to_string();
+    let target_path = "/whisperrr".to_string();
+    let headers = None;
+    let data = None;
+    let form_fields = Some(vec![String::from("file=@../examples/audio.mp3")]);
+    let outer_headers = None;
 
-    response = ohttp_client
+    match ohttp_client
         .post(
             &url,
             &target_path,
@@ -316,11 +342,39 @@ async fn local_test_invalid_client_paramaters() {
             &outer_headers,
         )
         .await
-        .expect("Could not post to scoring endpoint");
+    {
+        Ok(response) => {
+            let error_msg = response.text().await.unwrap_or_default();
+            error!("Error message: {error_msg}");
+            assert!(error_msg.contains("404 Not Found"));
+            assert!(error_msg.contains("The requested URL was not found on the server."));
+        }
+        Err(_) => {
+            panic!("This should never happen!");
+        }
+    }
 
-    let status = response.status();
-    info!("status: {status}");
-    assert!(!status.is_success());
+    shutdown_server(server_handle, shutdown_channel_sender).await;
+}
+
+#[tokio::test]
+// Invalid client paramaters for local testing
+async fn local_test_invalid_target_file() {
+    let _default_guard = init_test();
+
+    let mut args = create_args();
+
+    if let Some(args_mut) = Arc::get_mut(&mut args) {
+        args_mut.local_key = true;
+    }
+
+    cache_local_config()
+        .await
+        .expect("Could not cache local config");
+
+    let (server_handle, shutdown_channel_sender) = start_server(&args);
+
+    let hex_arg = get_config_from_discover_endpoint(URL_DISCOVER).await;
 
     let ohttp_client = OhttpClientBuilder::new()
         .config(&hex_arg)
@@ -328,8 +382,12 @@ async fn local_test_invalid_client_paramaters() {
         .await
         .expect("Could not create new ohttp client builder");
 
-    target_path = TARGET_PATH.to_string();
-    form_fields = Some(vec![String::from("file=@../examples/audioo.mp3")]);
+    let url = URL_SCORE.to_string();
+    let target_path = TARGET_PATH.to_string();
+    let headers = None;
+    let data = None;
+    let form_fields = Some(vec![String::from("file=@../examples/audioo.mp3")]);
+    let outer_headers = None;
 
     if ohttp_client
         .post(
