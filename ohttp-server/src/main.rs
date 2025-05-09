@@ -3,17 +3,11 @@
 
 #![deny(clippy::pedantic)]
 
-use ohttp_server::cache::cache_local_config;
-use ohttp_server::utils::Args;
-use ohttp_server::{discover, init, score};
-use std::sync::Arc;
-
 use clap::Parser;
-
+use ohttp_server::{cache::cache_local_config, discover, init, score, utils::Args};
+use std::sync::Arc;
 use warp::Filter;
-
 type Res<T> = Result<T, Box<dyn std::error::Error>>;
-
 use tracing::error;
 use uuid::Uuid;
 

@@ -4,8 +4,7 @@ use ohttp::{
     hpke::{Aead, Kdf, Kem},
     KeyConfig, SymmetricSuite,
 };
-use std::sync::Arc;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use tokio::time::Duration;
 
 use utils::Res;

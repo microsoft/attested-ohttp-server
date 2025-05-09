@@ -1,7 +1,7 @@
 use super::*;
-use crate::attest::fetch_maa_token;
-use crate::cache::cache_local_config;
-use crate::utils::DEFAULT_GPU_ATTESTATION_SOCKET;
+use crate::{
+    attest::fetch_maa_token, cache::cache_local_config, utils::DEFAULT_GPU_ATTESTATION_SOCKET,
+};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use cgpuvm_attest::AttestationClient;
 use ohttp_client::{HexArg, OhttpClientBuilder};
