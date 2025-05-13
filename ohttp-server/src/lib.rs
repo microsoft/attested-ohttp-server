@@ -73,7 +73,7 @@ pub async fn post_request_to_target(
     };
 
     // Copy headers from the encapsulated request
-    let mut headers = get_headers_from_request(&bin_request);
+    let mut headers = get_headers_from_request(bin_request);
 
     // Inject additional headers from the outer request
     if !inject_headers.is_empty() {
@@ -172,7 +172,7 @@ pub async fn score(
     let (config, token) = match load_config_token_safe(
         &maa_url,
         &kms_url,
-        &gpu_attestation_socket,
+        gpu_attestation_socket,
         kid,
         &x_ms_request_id,
     )

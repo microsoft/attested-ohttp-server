@@ -55,42 +55,61 @@ const URL_SCORE: &str = "http://localhost:9443/score";
 const TARGET_PATH: &str = "/whisper";
 const URL_DISCOVER: &str = "http://localhost:9443/discover";
 
-fn start_server(args: &Arc<Args>) -> (tokio::task::JoinHandle<()>, mpsc::Sender<()>) {
-    let args1 = Arc::clone(args);
-    let score = warp::post()
-        .and(warp::path::path("score"))
-        .and(warp::path::end())
-        .and(warp::header::headers_cloned())
-        .and(warp::body::bytes())
-        .and(warp::any().map(move || Arc::clone(&args1)))
-        .and(warp::any().map(Uuid::new_v4))
-        .and_then(score);
+#[derive(Debug)]
+struct TestServer {
+    shutdown_channel_sender: mpsc::Sender<()>,
+}
 
-    let args2 = Arc::clone(args);
-    let discover = warp::get()
-        .and(warp::path("discover"))
-        .and(warp::path::end())
-        .and(warp::any().map(move || Arc::clone(&args2)))
-        .and_then(discover);
+impl TestServer {
+    fn start(args: &Arc<Args>) -> Res<Self> {
+        let args1 = Arc::clone(args);
+        let score = warp::post()
+            .and(warp::path::path("score"))
+            .and(warp::path::end())
+            .and(warp::header::headers_cloned())
+            .and(warp::body::bytes())
+            .and(warp::any().map(move || Arc::clone(&args1)))
+            .and(warp::any().map(Uuid::new_v4))
+            .and_then(score);
 
-    let routes = score.or(discover);
+        let args2 = Arc::clone(args);
+        let discover = warp::get()
+            .and(warp::path("discover"))
+            .and(warp::path::end())
+            .and(warp::any().map(move || Arc::clone(&args2)))
+            .and_then(discover);
 
-    let (shutdown_channel_sender, mut shutdown_channel_receiver) = mpsc::channel::<()>(1);
+        let routes = score.or(discover);
 
-    let (addr, server) =
-        warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 9443), async move {
-            shutdown_channel_receiver
-                .recv()
-                .await
-                .expect("Failed to send request"); // Wait for shutdown signal
+        let (shutdown_channel_sender, mut shutdown_channel_receiver) = mpsc::channel::<()>(1);
+
+        // Spawn the server as a separate task
+        tokio::spawn(async move {
+            let (addr, server_handle) = warp::serve(routes).bind_with_graceful_shutdown(
+                ([127, 0, 0, 1], 9443),
+                async move {
+                    shutdown_channel_receiver.recv().await;
+                },
+            );
+            server_handle.await;
+            info!("Server started at: {}", addr);
         });
 
-    info!("Server started at: {}", addr);
+        Ok(TestServer {
+            shutdown_channel_sender,
+        })
+    }
+}
 
-    // Spawn the server as a separate task
-    let server_handle = tokio::spawn(server);
-
-    (server_handle, shutdown_channel_sender)
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        // Trigger shutdown when Server goes out of scope
+        let shutdown_channel_sender = self.shutdown_channel_sender.clone();
+        tokio::spawn(async move {
+            let _ = shutdown_channel_sender.send(()).await;
+        });
+        std::thread::sleep(std::time::Duration::from_secs(10));
+    }
 }
 
 async fn get_config_from_discover_endpoint(url: &str) -> Option<HexArg> {
@@ -114,19 +133,6 @@ async fn get_config_from_discover_endpoint(url: &str) -> Option<HexArg> {
     Some(HexArg::from_str(&body).expect("Invalid hex string"))
 }
 
-async fn shutdown_server(
-    server_handle: tokio::task::JoinHandle<()>,
-    shutdown_channel_sender: mpsc::Sender<()>,
-) {
-    shutdown_channel_sender
-        .send(())
-        .await
-        .expect("Could not send shutdown signal");
-
-    // Wait for the server to shut down
-    server_handle.await.expect("Waiting for server failed");
-}
-
 #[tokio::test]
 async fn local_test_basic() {
     let _default_guard = init_test();
@@ -141,7 +147,7 @@ async fn local_test_basic() {
         .await
         .expect("Could not cache local config");
 
-    let (server_handle, shutdown_channel_sender) = start_server(&args);
+    let _test_server = TestServer::start(&args).expect("Could not create new TestServer.");
 
     let hex_arg = get_config_from_discover_endpoint(URL_DISCOVER).await;
 
@@ -182,8 +188,6 @@ async fn local_test_basic() {
         let chunk = std::str::from_utf8(&chunk).expect("Could not get chunk");
         info!("{chunk}");
     }
-
-    shutdown_server(server_handle, shutdown_channel_sender).await;
 }
 
 #[tokio::test]
@@ -201,14 +205,13 @@ async fn local_test_invalid_discover_endpoint() {
         .await
         .expect("Could not cache local config");
 
-    let (server_handle, shutdown_channel_sender) = start_server(&args);
+    let _test_server = TestServer::start(&args).expect("Could not create new TestServer.");
 
     let url = "http://localhost:9443/discovery";
     let response = get_config_from_discover_endpoint(url).await;
     if response.is_some() {
         unreachable!("This should never happen!");
     }
-    shutdown_server(server_handle, shutdown_channel_sender).await;
 }
 
 #[tokio::test]
@@ -265,7 +268,7 @@ async fn local_test_invalid_client_url() {
         .await
         .expect("Could not cache local config");
 
-    let (server_handle, shutdown_channel_sender) = start_server(&args);
+    let _test_server = TestServer::start(&args).expect("Could not create new TestServer.");
 
     let hex_arg = get_config_from_discover_endpoint(URL_DISCOVER).await;
 
@@ -296,8 +299,6 @@ async fn local_test_invalid_client_url() {
     let status = response.status();
     info!("status: {status}");
     assert!(!status.is_success());
-
-    shutdown_server(server_handle, shutdown_channel_sender).await;
 }
 
 #[tokio::test]
@@ -315,7 +316,7 @@ async fn local_test_invalid_target_path() {
         .await
         .expect("Could not cache local config");
 
-    let (server_handle, shutdown_channel_sender) = start_server(&args);
+    let _test_server = TestServer::start(&args).expect("Could not create new TestServer.");
 
     let hex_arg = get_config_from_discover_endpoint(URL_DISCOVER).await;
 
@@ -353,8 +354,6 @@ async fn local_test_invalid_target_path() {
             panic!("This should never happen!");
         }
     }
-
-    shutdown_server(server_handle, shutdown_channel_sender).await;
 }
 
 #[tokio::test]
@@ -372,7 +371,7 @@ async fn local_test_invalid_target_file() {
         .await
         .expect("Could not cache local config");
 
-    let (server_handle, shutdown_channel_sender) = start_server(&args);
+    let _test_server = TestServer::start(&args).expect("Could not create new TestServer.");
 
     let hex_arg = get_config_from_discover_endpoint(URL_DISCOVER).await;
 
@@ -403,8 +402,6 @@ async fn local_test_invalid_target_file() {
     {
         panic!("This should never happen!");
     }
-
-    shutdown_server(server_handle, shutdown_channel_sender).await;
 }
 
 const DEFAULT_KMS_URL_CLIENT: &str = "https://accconfinferenceprod.confidential-ledger.azure.com";
@@ -457,7 +454,7 @@ async fn kms_test_basic() {
         args_mut.kms_url = Some(String::from(DEFAULT_KMS_URL_SERVER));
     }
 
-    let (server_handle, shutdown_channel_sender) = start_server(&args);
+    let _test_server = TestServer::start(&args).expect("Could not create new TestServer.");
 
     let kms_url = Some(String::from(DEFAULT_KMS_URL_CLIENT));
     let kms_cert = get_kms_cert().await;
@@ -499,8 +496,6 @@ async fn kms_test_basic() {
         let chunk = std::str::from_utf8(&chunk).expect("Could not get chunk");
         info!("{chunk}");
     }
-
-    shutdown_server(server_handle, shutdown_channel_sender).await;
 }
 
 const DEFAULT_KMS_URL_CLIENT_INVALID: &str =
@@ -539,7 +534,7 @@ async fn kms_test_mismatched_kms_url() {
         args_mut.kms_url = Some(String::from(KMS_URL_SERVER_DEBUG));
     }
 
-    let (server_handle, shutdown_channel_sender) = start_server(&args);
+    let _test_server = TestServer::start(&args).expect("Could not create new TestServer.");
 
     let kms_url = Some(String::from(DEFAULT_KMS_URL_CLIENT));
     let kms_cert = get_kms_cert().await;
@@ -572,8 +567,6 @@ async fn kms_test_mismatched_kms_url() {
     let status = response.status();
     info!("status: {status}");
     assert!(!status.is_success());
-
-    shutdown_server(server_handle, shutdown_channel_sender).await;
 }
 
 #[tokio::test]
