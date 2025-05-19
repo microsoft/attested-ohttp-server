@@ -404,8 +404,10 @@ async fn local_test_invalid_target_file() {
     }
 }
 
-const DEFAULT_KMS_URL_CLIENT: &str = "https://accconfinferenceproduction.confidential-ledger.azure.com";
-const DEFAULT_KMS_URL_SERVER: &str = "https://accconfinferenceproduction.confidential-ledger.azure.com/app/key";
+const DEFAULT_KMS_URL_CLIENT: &str =
+    "https://accconfinferenceproduction.confidential-ledger.azure.com";
+const DEFAULT_KMS_URL_SERVER: &str =
+    "https://accconfinferenceproduction.confidential-ledger.azure.com/app/key";
 
 async fn get_kms_cert() -> Option<PathBuf> {
     let client = reqwest::Client::builder()

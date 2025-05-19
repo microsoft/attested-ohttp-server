@@ -24,7 +24,8 @@ use std::sync::Arc;
 use utils::{Args, DEFAULT_MAA_URL};
 
 pub const FILTERED_RESPONSE_HEADERS: [&str; 2] = ["content-type", "content-length"];
-const DEFAULT_KMS_URL: &str = "https://accconfinferenceproduction.confidential-ledger.azure.com/app/key";
+const DEFAULT_KMS_URL: &str =
+    "https://accconfinferenceproduction.confidential-ledger.azure.com/app/key";
 
 use futures_util::stream::unfold;
 
