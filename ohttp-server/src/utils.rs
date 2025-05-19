@@ -1,7 +1,7 @@
 pub type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
 pub const DEFAULT_KMS_URL: &str =
-    "https://accconfinferenceprod.confidential-ledger.azure.com/app/key";
+    "https://accconfinferenceproduction.confidential-ledger.azure.com/app/key";
 pub const DEFAULT_MAA_URL: &str = "https://confinfermaaeus2test.eus2.test.attest.azure.net";
 pub const DEFAULT_GPU_ATTESTATION_SOCKET: &str = "/var/run/gpu-attestation/gpu-attestation.sock";
 
