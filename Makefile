@@ -1,4 +1,4 @@
-KMS ?= https://accconfinferenceprod.confidential-ledger.azure.com
+KMS ?= https://accconfinferenceproduction.confidential-ledger.azure.com
 MAA ?= https://confinfermaaeus2test.eus2.test.attest.azure.net
 
 export TARGET ?= http://127.0.0.1:3000

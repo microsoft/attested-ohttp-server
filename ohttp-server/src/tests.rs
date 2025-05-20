@@ -404,9 +404,10 @@ async fn local_test_invalid_target_file() {
     }
 }
 
-const DEFAULT_KMS_URL_CLIENT: &str = "https://accconfinferenceprod.confidential-ledger.azure.com";
+const DEFAULT_KMS_URL_CLIENT: &str =
+    "https://accconfinferenceproduction.confidential-ledger.azure.com";
 const DEFAULT_KMS_URL_SERVER: &str =
-    "https://accconfinferenceprod.confidential-ledger.azure.com/app/key";
+    "https://accconfinferenceproduction.confidential-ledger.azure.com/app/key";
 
 async fn get_kms_cert() -> Option<PathBuf> {
     let client = reqwest::Client::builder()
@@ -415,7 +416,7 @@ async fn get_kms_cert() -> Option<PathBuf> {
         .expect("reqwest::Client::builder() failed");
 
     let response = client
-        .get("https://accconfinferenceprod.confidential-ledger.azure.com/node/network")
+        .get("https://accconfinferenceproduction.confidential-ledger.azure.com/node/network")
         .send()
         .await
         .expect("reqwest::Client::get() failed");
@@ -499,7 +500,7 @@ async fn kms_test_basic() {
 }
 
 const DEFAULT_KMS_URL_CLIENT_INVALID: &str =
-    "https://accconfinferenceprodbad.confidential-ledger.azure.com";
+    "https://accconfinferenceproductionbad.confidential-ledger.azure.com";
 
 #[tokio::test]
 // Invalid kms url set for client
