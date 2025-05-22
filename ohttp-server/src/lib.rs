@@ -37,7 +37,7 @@ use warp::hyper::Body;
 use tracing::{error, instrument, trace};
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter, FmtSubscriber};
 
-const VERSION: &str = "0.0.74.2";
+const VERSION: &str = "0.0.74.3";
 
 /// Copies headers from the encapsulated request and logs them.
 ///
