@@ -37,7 +37,7 @@ use warp::hyper::Body;
 use tracing::{error, instrument, trace};
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter, FmtSubscriber};
 
-const VERSION: &str = "0.0.74.2";
+const VERSION: &str = "0.0.74.3";
 
 /// Copies headers from the encapsulated request and logs them.
 ///
@@ -111,11 +111,7 @@ pub async fn post_request_to_target(
         .await?;
 
     if !response.status().is_success() {
-        let error_msg = format!(
-            "{}{}",
-            response.status(),
-            response.text().await.unwrap_or_default()
-        );
+        let error_msg = response.text().await.unwrap_or_default();
         return Err(Box::new(ServerError::TargetRequestError(error_msg)));
     }
 

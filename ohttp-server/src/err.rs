@@ -29,6 +29,6 @@ pub enum ServerError {
     TPMDecryptionFailure,
     #[error("GPU attestation failed: {0}")]
     GPUAttestationFailure(String),
-    #[error("Target response failed: {0}")]
+    #[error("{0}")]
     TargetRequestError(String),
 }

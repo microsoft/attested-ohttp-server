@@ -29,6 +29,7 @@ make build-whisper-container
 Next, clone and build the attested OHTTP client container. 
 
 ```
+git submodule init
 git submodule update --recursive
 make build-client-container
 ```
