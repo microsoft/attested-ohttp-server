@@ -1,0 +1,21 @@
+[package]
+name = "cvm-attestation"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3.18", features = ["default", "json", "env-filter"] }
+tokio = { version = "1", features = ["full"] }
+warp = { version = "0.3", features = ["tls"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+reqwest = { version = "0.12.15", default-features = false, features = ["rustls-tls"] }
+hyper-unix-connector = "0.2.2"
+hyper = { version = "0.14", features = ["client", "http1"] }
+http = "0.2"
+thiserror = "2.0.12"
+
+
+[dependencies.cgpuvm-attest]
+path= "../../cgpuvm-attest"
+features = []

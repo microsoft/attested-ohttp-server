@@ -1,0 +1,30 @@
+[Unit]
+Description=Local CVM Attestation Service on socket
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Ensure the socket directory exists
+ExecStartPre=/bin/mkdir -p /var/run/cvm-attestation
+ExecStartPre=/bin/chmod 755 /var/run/cvm-attestation
+
+# Ensure the binary exists before starting
+ExecStartPre=/bin/bash -c 'if [ ! -x /usr/local/bin/cvm-attestation/cvm-attestation ]; then echo "Binary missing: /usr/local/bin/cvm-attestation/cvm-attestation" >&2; exit 1; fi'
+
+# Execute CVM Attestation Service binary
+ExecStart=/usr/local/bin/cvm-attestation/cvm-attestation
+
+# Restart on failures
+Restart=on-failure
+RestartSec=5s
+
+Environment="RUST_LOG=trace"
+
+# Use journald for stdout/err
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
