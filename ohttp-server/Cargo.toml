@@ -33,9 +33,14 @@ tracing-subscriber = { version = "0.3.18", features = ["default", "json", "env-f
 thiserror = "1"
 uuid = { version = "1.0", features = ["v4"] }
 hyper-unix-connector = "0.2.2"
+tokio-stream = { version = "0.1", features = ["net"] }
 
 [dependencies.cgpuvm-attest]
 path= "../cgpuvm-attest"
+features = []
+
+[dependencies.azure-attestation-proxy]
+path= "../azure-attestation-proxy"
 features = []
 
 [dependencies.bhttp]
@@ -52,3 +57,4 @@ default-features = false
 [dev-dependencies]
 hyper = "0.14"  # Use the latest patch version for the 0.14.x series
 ohttp-client = {path = "../external/attested-ohttp-client/ohttp-client" }
+

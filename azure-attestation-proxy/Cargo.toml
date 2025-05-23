@@ -1,0 +1,20 @@
+[package]
+name = "azure-attestation-proxy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3.18", features = ["default", "json", "env-filter"] }
+warp = { version = "0.3", features = ["tls"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+bytes = "1.10.1"
+thiserror = "2.0.12"
+hyper = { version = "0.14", features = ["client", "http1"] }
+http = "0.2"
+hyper-unix-connector = "0.2.2"
+
+[dependencies.cgpuvm-attest]
+path= "../cgpuvm-attest"
+features = []
