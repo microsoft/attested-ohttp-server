@@ -111,10 +111,7 @@ pub async fn post_request_to_target(
         .await?;
 
     if !response.status().is_success() {
-        let error_msg = format!(
-            "{}",
-            response.text().await.unwrap_or_default()
-        );
+        let error_msg = response.text().await.unwrap_or_default();
         return Err(Box::new(ServerError::TargetRequestError(error_msg)));
     }
 
