@@ -99,7 +99,7 @@ pub fn fetch_maa_token(attestation_client: &mut AttestationClient, maa: &str) ->
 
 /// Retrieves the HPKE private key from Azure KMS.
 ///
-async fn get_hpke_private_key_from_kms(
+pub async fn get_hpke_private_key_from_kms(
     kms: &str,
     kid: u8,
     token: &str,

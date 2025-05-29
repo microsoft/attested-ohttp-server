@@ -623,3 +623,138 @@ async fn test_maa_valid_urls() {
         }
     }
 }
+
+const TEST_SOCKET_PATH: &str = "/var/run/azure-attestation-proxy/test.sock";
+use attest::get_hpke_private_key_from_kms;
+use azure_attestation_proxy::{attest, decrypt, get_socket_listener};
+use hyper::{Body, Method, Request};
+use hyper_unix_connector::{UnixClient, Uri};
+
+fn init_proxy_test() -> DefaultGuard {
+    // Build a simple subscriber that outputs to stdout
+    let subscriber = FmtSubscriber::builder()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .with_span_events(FmtSpan::NEW)
+        .json()
+        .finish();
+
+    // Set the subscriber as global default
+    let default_guard = tracing::subscriber::set_default(subscriber);
+
+    default_guard
+}
+
+#[derive(Debug)]
+struct TestProxyServer {
+    shutdown_channel_sender: mpsc::Sender<()>,
+}
+
+impl TestProxyServer {
+    async fn start() -> Res<Self> {
+        let listener = match get_socket_listener(TEST_SOCKET_PATH).await {
+            Ok(listener) => listener,
+            Err(e) => return Err(e),
+        };
+
+        let attest = warp::get()
+            .and(warp::path::path("attest"))
+            .and(warp::path::end())
+            .and(warp::header::header::<String>("maa"))
+            .and(warp::header::header::<String>("x-ms-request-id"))
+            .and_then(attest);
+
+        let decrypt = warp::get()
+            .and(warp::path::path("decrypt"))
+            .and(warp::path::end())
+            .and(warp::header::header::<String>("x-ms-request-id"))
+            .and(warp::body::bytes())
+            .and_then(decrypt);
+
+        let routes = attest.or(decrypt);
+
+        let stream = tokio_stream::wrappers::UnixListenerStream::new(listener);
+
+        let (shutdown_channel_sender, mut shutdown_channel_receiver) = mpsc::channel::<()>(1);
+
+        // Spawn the server as a separate task
+        tokio::spawn(async move {
+            warp::serve(routes)
+                .serve_incoming_with_graceful_shutdown(stream, async move {
+                    shutdown_channel_receiver.recv().await;
+                })
+                .await;
+        });
+
+        Ok(TestProxyServer {
+            shutdown_channel_sender,
+        })
+    }
+}
+
+impl Drop for TestProxyServer {
+    fn drop(&mut self) {
+        // Trigger shutdown when Server goes out of scope
+        let shutdown_channel_sender = self.shutdown_channel_sender.clone();
+        tokio::spawn(async move {
+            let _ = shutdown_channel_sender.send(()).await;
+        });
+        std::thread::sleep(std::time::Duration::from_secs(10));
+    }
+}
+
+async fn test_attestation_proxy() {
+    let _default_guard = init_proxy_test();
+
+    let _test_server = TestProxyServer::start()
+        .await
+        .expect("Could not create new TestServer.");
+
+    let client: hyper::Client<UnixClient, Body> = hyper::Client::builder().build(UnixClient);
+    let addr: hyper::Uri = Uri::new(TEST_SOCKET_PATH, "/attest").into();
+    info!("Connecting to: {}", addr);
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(addr)
+        .header("x-ms-request-id", "12345678-1234-5678-1234-567812345678")
+        .header(
+            "maa",
+            "https://confinfermaaeus2test.eus2.test.attest.azure.net",
+        )
+        .body(Body::empty())
+        .expect("request builder");
+
+    let response = client.request(req).await.unwrap();
+    info!("Received: {}", response.status());
+    assert_eq!(response.status(), 200);
+    let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    info!("Received: {}", body_str);
+
+    let addr: hyper::Uri = Uri::new(TEST_SOCKET_PATH, "/decrypt").into();
+    info!("Connecting to: {}", addr);
+
+    let kid: u8 = 1;
+    let x_ms_request_id: Uuid = Uuid::parse_str("a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7d8").unwrap();
+    let key = get_hpke_private_key_from_kms(DEFAULT_KMS_URL, kid, &body_str, &x_ms_request_id)
+        .await
+        .unwrap();
+    let enc_key = b64.decode(&key).unwrap_or_default();
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(addr)
+        .header("x-ms-request-id", "12345678-1234-5678-1234-567812345678")
+        .body(enc_key.into())
+        .expect("request builder");
+
+    let response = client.request(req).await.unwrap();
+    info!("Received: {}", response.status());
+    assert_eq!(response.status(), 200);
+    let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    info!("Received: {}", body_str);
+}
