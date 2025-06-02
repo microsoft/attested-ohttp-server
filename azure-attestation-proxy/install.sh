@@ -32,8 +32,6 @@ cd "$(dirname "$0")"
 CVM_ATTESTATION_PATH="/usr/local/bin/azure-attestation-proxy"
 SERVICE_NAME="azure-attestation-proxy"
 
-cargo build 
-
 # Stop the existing systemd service BEFORE copying the new binary if it's running
 if [ "$ENABLE_SERVICE" = "1" ]; then
     echo "Stopping existing '$SERVICE_NAME' service (if running)..."
@@ -43,7 +41,7 @@ fi
 # Install the binary
 echo "Installing azure-attestation-proxy-service to $CVM_ATTESTATION_PATH..."
 sudo mkdir -p "$CVM_ATTESTATION_PATH"
-sudo cp ../target/debug/azure-attestation-proxy "$CVM_ATTESTATION_PATH"
+sudo cp ./bin/azure-attestation-proxy "$CVM_ATTESTATION_PATH"
 sudo chmod +x "$CVM_ATTESTATION_PATH/azure-attestation-proxy"
 
 echo "Installation complete!"

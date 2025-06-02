@@ -1,12 +1,11 @@
 use crate::{
-    cache::{CachedKey, CACHE},
+    cache::{CACHE, CachedKey},
     err::ServerError,
     utils::Res,
 };
 pub const PCR0_TO_15_BITMASK: u32 = 0xFFFF;
 
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
-use cgpuvm_attest::AttestationClient;
 use tracing::{error, info, trace};
 use uuid::Uuid;
 use warp::hyper;
@@ -17,11 +16,11 @@ use serde::Deserialize;
 use serde_json::from_str;
 
 use ohttp::{
-    hpke::{Aead, Kdf, Kem},
     Error, KeyConfig, SymmetricSuite,
+    hpke::{Aead, Kdf, Kem},
 };
 
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use serde_cbor::Value;
 
@@ -86,15 +85,95 @@ pub async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: &Uuid) -> Re
     Ok(())
 }
 
-pub fn fetch_maa_token(attestation_client: &mut AttestationClient, maa: &str) -> Res<String> {
+const SOCKET_PATH: &str = "/var/run/azure-attestation-proxy/azure-attestation-proxy.sock";
+use hyper::{Body, Method, Request, Response};
+use hyper_unix_connector::{UnixClient, Uri};
+
+pub async fn get_response(response: Response<Body>) -> Res<String> {
+    if !response.status().is_success() {
+        return Err(Box::new(ServerError::AzureAttestationProxyFailure(
+            format!(
+                "Azure Attestation proxy response status: {}",
+                response.status()
+            ),
+        )));
+    }
+
+    let bytes = match hyper::body::to_bytes(response.into_body()).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return Err(Box::new(ServerError::AzureAttestationProxyFailure(
+                format!("Failed to read Azure Attestation proxy response body: {e}"),
+            )));
+        }
+    };
+
+    let str = match String::from_utf8(bytes.to_vec()) {
+        Ok(str) => str,
+        Err(e) => {
+            return Err(Box::new(ServerError::AzureAttestationProxyFailure(
+                format!("Failed to decode Azure Attestation proxy response body as UTF-8: {e}"),
+            )));
+        }
+    };
+
+    Ok(str)
+}
+
+pub async fn fetch_maa_token(maa: &str, x_ms_request_id: &Uuid) -> Res<String> {
     // Get MAA token from CVM guest attestation library
     info!("Fetching MAA token from {maa}");
 
-    let t = attestation_client.attest("{}".as_bytes(), PCR0_TO_15_BITMASK, maa)?;
+    let client: hyper::Client<UnixClient, Body> = hyper::Client::builder().build(UnixClient);
+    let addr: hyper::Uri = Uri::new(SOCKET_PATH, "/attest").into();
+    trace!("Azure Attestation proxy request URI: {}", addr);
 
-    let token = String::from_utf8(t).unwrap();
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(addr)
+        .header("x-ms-request-id", x_ms_request_id.to_string())
+        .header("maa", maa)
+        .body(Body::empty())
+        .expect("request builder");
+
+    let response = match client.request(req).await {
+        Ok(response) => response,
+        Err(e) => {
+            return Err(Box::new(ServerError::AzureAttestationProxyFailure(
+                format!("Failed to connect to Azure Attestation proxy : {e}"),
+            )));
+        }
+    };
+
+    let token = get_response(response).await?;
     trace!("Fetched MAA token: {token}");
+
     Ok(token)
+}
+
+pub async fn decrypt_key(enc_key: Vec<u8>, x_ms_request_id: &Uuid) -> Res<String> {
+    let client: hyper::Client<UnixClient, Body> = hyper::Client::builder().build(UnixClient);
+    let addr: hyper::Uri = Uri::new(SOCKET_PATH, "/attest").into();
+    trace!("Azure Attestation proxy request URI: {}", addr);
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(addr)
+        .header("x-ms-request-id", x_ms_request_id.to_string())
+        .body(enc_key.into())
+        .expect("request builder");
+
+    let response = match client.request(req).await {
+        Ok(response) => response,
+        Err(e) => {
+            return Err(Box::new(ServerError::AzureAttestationProxyFailure(
+                format!("Failed to connect to Azure Attestation proxy : {e}"),
+            )));
+        }
+    };
+
+    let dec_key = get_response(response).await?;
+    Ok(dec_key)
 }
 
 /// Retrieves the HPKE private key from Azure KMS.
@@ -132,8 +211,7 @@ pub async fn get_hpke_private_key_from_kms(
                     retries += 1;
                     trace!(
                         "Received 202 status code, retrying... (attempt {}/{})",
-                        retries,
-                        max_retries
+                        retries, max_retries
                     );
                     sleep(Duration::from_secs(1)).await;
                 } else {
@@ -147,9 +225,7 @@ pub async fn get_hpke_private_key_from_kms(
                 let skr: ExportedKey = from_str(&skr_body)?;
                 trace!(
                     "requested KID={}, returned KID={}, Receipt={}",
-                    kid,
-                    skr.kid,
-                    skr.receipt
+                    kid, skr.kid, skr.receipt
                 );
 
                 if skr.kid != kid {
@@ -165,21 +241,16 @@ pub async fn get_hpke_private_key_from_kms(
     }
 }
 
-async fn load_config(
-    attestation_client: &mut AttestationClient,
-    kms: &str,
-    kid: u8,
-    token: &str,
-    x_ms_request_id: &Uuid,
-) -> Res<KeyConfig> {
+async fn load_config(kms: &str, kid: u8, token: &str, x_ms_request_id: &Uuid) -> Res<KeyConfig> {
     // The KMS returns the base64-encoded, RSA2048-OAEP-SHA256 encrypted CBOR key
     let key = get_hpke_private_key_from_kms(kms, kid, token, x_ms_request_id).await?;
-    let enc_key: &[u8] = &b64.decode(&key)?;
-    let decrypted_key = match attestation_client.decrypt(enc_key, PCR0_TO_15_BITMASK) {
+    let enc_key = b64.decode(&key)?;
+    let decrypted_key = match decrypt_key(enc_key, x_ms_request_id).await {
         Ok(k) => k,
         _ => Err(Box::new(ServerError::TPMDecryptionFailure))?,
     };
 
+    let decrypted_key = decrypted_key.as_bytes().to_vec();
     let (d, returned_kid) = parse_cbor_key(&decrypted_key, kid)?;
     let sk = match d {
         Some(key) => <hpke::kem::DhP384HkdfSha384 as hpke::Kem>::PrivateKey::from_bytes(&key),
@@ -281,21 +352,9 @@ pub async fn load_config_token(
     // Run local GPU attestation
     do_gpu_attestation(gpu_attestation, x_ms_request_id).await?;
 
-    let mut attestation_client = match AttestationClient::new() {
-        Ok(cli) => cli,
-        _ => Err(Box::new(ServerError::AttestationLibraryInit))?,
-    };
+    let token = fetch_maa_token(maa, x_ms_request_id).await?;
 
-    let token = fetch_maa_token(&mut attestation_client, maa)?;
-
-    let config = load_config(
-        &mut attestation_client,
-        kms,
-        kid,
-        token.as_str(),
-        x_ms_request_id,
-    )
-    .await?;
+    let config = load_config(kms, kid, token.as_str(), x_ms_request_id).await?;
 
     CACHE
         .insert(

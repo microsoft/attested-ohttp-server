@@ -1,4 +1,4 @@
-FROM rust:1.84.1 AS builder
+FROM rust:1.85.1 AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get upgrade -y && apt-get install -yq openssl libssl-dev libtss2-dev

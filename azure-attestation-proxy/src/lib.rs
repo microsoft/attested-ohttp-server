@@ -144,3 +144,6 @@ pub async fn decrypt(
         warp::http::StatusCode::OK,
     ))
 }
+
+#[cfg(test)]
+mod tests;

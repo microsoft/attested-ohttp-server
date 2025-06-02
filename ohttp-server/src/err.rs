@@ -31,4 +31,6 @@ pub enum ServerError {
     GPUAttestationFailure(String),
     #[error("{0}")]
     TargetRequestError(String),
+    #[error("{0}")]
+    AzureAttestationProxyFailure(String),
 }
