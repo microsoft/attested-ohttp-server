@@ -1,5 +1,6 @@
 KMS ?= https://accconfinferenceproduction.confidential-ledger.azure.com
 MAA ?= https://confinfermaaeus2test.eus2.test.attest.azure.net
+REQUEST_ID ?= "12345678-1234-5678-1234-567812345678"
 
 export TARGET ?= http://127.0.0.1:3000
 export TARGET_PATH ?= '/whisper'
@@ -16,8 +17,14 @@ export DETACHED ?=
 build-server:
 	cargo build --bin ohttp-server
 
+build-attestation-proxy:
+	cargo build --bin azure-attestation-proxy
+
 build-whisper-container:
 	docker build -f docker/whisper/Dockerfile -t whisper-api ./docker/whisper
+
+build-attestation-proxy-builder:
+	docker build -f docker/attestation-proxy-builder/Dockerfile -t attestation-proxy-builder .
 
 build-server-container:
 	docker build -f docker/server/Dockerfile -t attested-ohttp-server .
@@ -25,7 +32,7 @@ build-server-container:
 build-client-container:
 	docker build -f external/attested-ohttp-client/docker/Dockerfile -t attested-ohttp-client external/attested-ohttp-client/
 
-build: build-server-container build-client-container build-whisper-container
+build: build-attestation-proxy-builder build-server-container build-client-container build-whisper-container
 
 format-checks:
 	cargo fmt --all -- --check --config imports_granularity=Crate
@@ -43,6 +50,25 @@ run-server-container-cvm:
 	--mount type=bind,source=/dev/tpmrm0,target=/dev/tpmrm0,readonly \
 	--mount type=bind,source=/var/run/gpu-attestation,target=/var/run/gpu-attestation \
 	attested-ohttp-server
+
+run-attestation-proxy-builder:
+	docker run --name attestation-proxy-builder_tmp attestation-proxy-builder
+	mkdir -p azure-attestation-proxy/bin
+	docker cp attestation-proxy-builder_tmp:/usr/local/cargo/bin/azure-attestation-proxy azure-attestation-proxy/bin/azure-attestation-proxy
+	docker rm attestation-proxy-builder_tmp
+	chmod 755 azure-attestation-proxy/bin/azure-attestation-proxy
+
+install-attestation-proxy: build-attestation-proxy-builder run-attestation-proxy-builder
+	sudo cp azure-attestation-proxy/libazguestattestation.so.1.0.5 /usr/bin
+	sudo ln -sf /usr/bin/libazguestattestation.so.1.0.5 /usr/lib/libazguestattestation.so.1
+	sudo ln -sf /usr/bin/libazguestattestation.so.1.0.5 /usr/lib/libazguestattestation.so
+	sudo ldconfig
+	sudo azure-attestation-proxy/install.sh --enable-service
+
+test-attestation-proxy:
+	curl --unix-socket /var/run/azure-attestation-proxy/azure-attestation-proxy.sock http://localhost/attest \
+	 -H "maa: ${MAA}" -H "x-ms-request-id: ${REQUEST_ID}"
+
 
 # Whisper deployments
 
