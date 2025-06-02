@@ -3,4 +3,5 @@ resolver = "2"
 members = [
   "ohttp-server",
   "cgpuvm-attest",
+  "azure-attestation-proxy",
 ]

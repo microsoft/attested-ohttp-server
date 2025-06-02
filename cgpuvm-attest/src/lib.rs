@@ -32,6 +32,7 @@ extern "C" {
     ) -> c_int;
 }
 
+#[derive(Debug)]
 pub struct AttestationClient {
     p_attestation_client: *mut c_void,
 }
