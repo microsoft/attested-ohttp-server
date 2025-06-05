@@ -2,7 +2,7 @@
 name = "cgpuvm-attest"
 version = "0.1.0"
 authors = ["Antoine Delignat-Lavaud <antdl@microsoft.com>"]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 description = "FFI for Confidential GPU VM Guest Attestation Library"
 repository = "https://github.com/ad-l/cvm-guest-attestation"
