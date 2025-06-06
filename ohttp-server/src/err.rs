@@ -7,6 +7,8 @@ use thiserror::Error;
 pub enum ServerError {
     #[error("CVM guest attestation library initialization failure")]
     AttestationLibraryInit,
+    #[error("{0}")]
+    AzureAttestationProxyFailure(String),
     #[error("SKR for the requested KID has failed in the past 60 seconds, waiting to retry.")]
     CachedSKRError,
     #[error("Incorrect CBOR encoding in returned private key")]

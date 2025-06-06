@@ -11,6 +11,7 @@ pub const PCR0_TO_15_BITMASK: u32 = 0xFFFF;
 use cgpuvm_attest::AttestationClient;
 
 use thiserror::Error;
+use base64::{Engine as _, engine::general_purpose::STANDARD as b64};
 #[derive(Error, Debug)]
 pub enum ServerError {
     #[error("CVM guest attestation library initialization failure")]
@@ -115,7 +116,7 @@ pub async fn decrypt(
     x_ms_request_id: String,
     body: bytes::Bytes,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
-    let enc_key = body.to_vec();
+    let enc_key: &[u8] = &body.to_vec();
     trace!("Encrypted key: {:?}", enc_key);
 
     let mut attestation_client = match create_attestation_client() {
@@ -139,8 +140,13 @@ pub async fn decrypt(
         }
     };
 
+    let encoded = b64.encode(&decrypted_key);
     Ok(warp::reply::with_status(
-        String::from_utf8(decrypted_key).unwrap(),
+        encoded,
         warp::http::StatusCode::OK,
     ))
+
 }
+
+#[cfg(test)]
+mod tests;
