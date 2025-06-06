@@ -1,11 +1,11 @@
 use crate::{
-    cache::{CachedKey, CACHE},
+    cache::{CACHE, CachedKey},
     err::ServerError,
     utils::Res,
 };
 pub const PCR0_TO_15_BITMASK: u32 = 0xFFFF;
 
-use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as b64};
 use cgpuvm_attest::AttestationClient;
 use tracing::{error, info, trace};
 use uuid::Uuid;
@@ -17,11 +17,11 @@ use serde::Deserialize;
 use serde_json::from_str;
 
 use ohttp::{
-    hpke::{Aead, Kdf, Kem},
     Error, KeyConfig, SymmetricSuite,
+    hpke::{Aead, Kdf, Kem},
 };
 
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use serde_cbor::Value;
 
@@ -132,8 +132,7 @@ pub async fn get_hpke_private_key_from_kms(
                     retries += 1;
                     trace!(
                         "Received 202 status code, retrying... (attempt {}/{})",
-                        retries,
-                        max_retries
+                        retries, max_retries
                     );
                     sleep(Duration::from_secs(1)).await;
                 } else {
@@ -147,9 +146,7 @@ pub async fn get_hpke_private_key_from_kms(
                 let skr: ExportedKey = from_str(&skr_body)?;
                 trace!(
                     "requested KID={}, returned KID={}, Receipt={}",
-                    kid,
-                    skr.kid,
-                    skr.receipt
+                    kid, skr.kid, skr.receipt
                 );
 
                 if skr.kid != kid {

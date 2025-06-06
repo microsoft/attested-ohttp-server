@@ -1,6 +1,6 @@
-use azure_attestation_proxy::{attest, decrypt, get_socket_listener, Res};
+use azure_attestation_proxy::{Res, attest, decrypt, get_socket_listener};
 use tracing::subscriber;
-use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter, FmtSubscriber};
+use tracing_subscriber::{EnvFilter, FmtSubscriber, fmt::format::FmtSpan};
 use warp::Filter;
 
 const SOCKET_PATH: &str = "/var/run/azure-attestation-proxy/azure-attestation-proxy.sock";

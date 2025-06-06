@@ -10,12 +10,12 @@ use std::ffi::CString;
 type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
 #[link(name = "azguestattestation")]
-extern "C" {
-    fn ga_create(ppAttestationClient: *mut *mut c_void) -> c_int;
+unsafe extern "C" {
+    unsafe fn ga_create(ppAttestationClient: *mut *mut c_void) -> c_int;
 
-    fn ga_free(pAttestationClient: *mut c_void);
+    unsafe fn ga_free(pAttestationClient: *mut c_void);
 
-    fn ga_get_token(
+    unsafe fn ga_get_token(
         pAttestationClient: *mut c_void,
         app_data: *const u8,
         pcr: u32,
@@ -24,7 +24,7 @@ extern "C" {
         endpoint_url: *const c_char,
     ) -> c_int;
 
-    fn ga_decrypt(
+    unsafe fn ga_decrypt(
         pAttestationClient: *mut c_void,
         cipher: *mut u8,
         len: *mut size_t,

@@ -14,12 +14,12 @@ use bhttp::{Message, Mode};
 use std::io::Cursor;
 
 use reqwest::{
-    header::{HeaderMap, HeaderName, HeaderValue},
     Method, Response, Url,
+    header::{HeaderMap, HeaderName, HeaderValue},
 };
 
 use attest::{load_config_token, load_config_token_safe};
-use cache::{CachedKey, CACHE};
+use cache::{CACHE, CachedKey};
 use std::sync::Arc;
 use utils::{Args, DEFAULT_MAA_URL};
 
@@ -29,13 +29,13 @@ const DEFAULT_KMS_URL: &str =
 
 use futures_util::stream::unfold;
 
-use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as b64};
 
 use ohttp::KeyConfig;
 use warp::hyper::Body;
 
 use tracing::{error, instrument, trace};
-use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter, FmtSubscriber};
+use tracing_subscriber::{EnvFilter, FmtSubscriber, fmt::format::FmtSpan};
 
 const VERSION: &str = "0.0.74.3";
 

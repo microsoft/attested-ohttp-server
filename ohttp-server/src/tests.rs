@@ -642,9 +642,7 @@ fn init_proxy_test() -> DefaultGuard {
         .finish();
 
     // Set the subscriber as global default
-    let default_guard = tracing::subscriber::set_default(subscriber);
-
-    default_guard
+    tracing::subscriber::set_default(subscriber)
 }
 
 #[derive(Debug)]
