@@ -1,5 +1,5 @@
 KMS ?= https://accconfinferenceproduction.confidential-ledger.azure.com
-MAA ?= https://confinfermaaeus2test.eus2.test.attest.azure.net
+MAA ?= https://maanosecureboottestyfu.eus.attest.azure.net
 REQUEST_ID ?= "12345678-1234-5678-1234-567812345678"
 
 export TARGET ?= http://127.0.0.1:3000
@@ -44,11 +44,10 @@ run-server-container:
 	docker compose -f ./docker/docker-compose-server.yml up
 
 run-server-container-cvm:
-	docker run --privileged --net=host \
-	-e TARGET=${TARGET} -e MAA_URL=${MAA} -e KMS_URL=${KMS}/app/key -e INJECT_HEADERS=${INJECT_HEADERS} \
-	--mount type=bind,source=/sys/kernel/security,target=/sys/kernel/security,readonly \
-	--mount type=bind,source=/dev/tpmrm0,target=/dev/tpmrm0,readonly \
+	docker run -e TARGET=${TARGET} --network=host \
+	-e MAA_URL=${MAA} -e KMS_URL=${KMS}/app/key -e INJECT_HEADERS=${INJECT_HEADERS} \
 	--mount type=bind,source=/var/run/gpu-attestation,target=/var/run/gpu-attestation \
+	--mount type=bind,source=/var/run/azure-attestation-proxy,target=/var/run/azure-attestation-proxy \
 	attested-ohttp-server
 
 run-attestation-proxy-builder:
