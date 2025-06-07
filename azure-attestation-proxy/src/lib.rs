@@ -116,7 +116,7 @@ pub async fn decrypt(
     x_ms_request_id: String,
     body: bytes::Bytes,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
-    let enc_key: &[u8] = &body.to_vec();
+    let enc_key: &[u8] = body.as_ref();
     trace!("Encrypted key: {:?}", enc_key);
 
     let mut attestation_client = match create_attestation_client() {
