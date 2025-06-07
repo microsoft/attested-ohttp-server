@@ -14,6 +14,7 @@ thiserror = "2.0.12"
 hyper = { version = "0.14", features = ["client", "http1"] }
 http = "0.2"
 hyper-unix-connector = "0.2.2"
+base64 = "0.22.1"
 
 [dependencies.cgpuvm-attest]
 path= "../cgpuvm-attest"
