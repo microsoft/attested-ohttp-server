@@ -2,7 +2,7 @@ use std::{os::unix::fs::PermissionsExt, path::Path};
 use tokio::net::UnixListener;
 use tracing::{error, info, instrument, trace};
 
-pub const VERSION: &str = "0.0.74.3";
+pub const VERSION: &str = "0.0.88.0";
 
 pub type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
