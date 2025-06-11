@@ -612,7 +612,7 @@ impl TestProxyServer {
             .and(warp::header::header::<String>("x-ms-request-id"))
             .and_then(attest);
 
-        let decrypt = warp::get()
+        let decrypt = warp::post()
             .and(warp::path::path("decrypt"))
             .and(warp::path::end())
             .and(warp::header::header::<String>("x-ms-request-id"))
@@ -688,7 +688,7 @@ async fn test_attestation_proxy() {
     let enc_key = b64.decode(&key).unwrap_or_default();
 
     let req = Request::builder()
-        .method(Method::GET)
+        .method(Method::POST)
         .uri(addr)
         .header("x-ms-request-id", "12345678-1234-5678-1234-567812345678")
         .body(enc_key.into())
