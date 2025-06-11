@@ -36,7 +36,7 @@ async fn main() -> Res<()> {
         .and(warp::header::header::<String>("x-ms-request-id"))
         .and_then(attest);
 
-    let decrypt = warp::get()
+    let decrypt = warp::post()
         .and(warp::path::path("decrypt"))
         .and(warp::path::end())
         .and(warp::header::header::<String>("x-ms-request-id"))
