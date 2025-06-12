@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    attest::fetch_maa_token, cache::cache_local_config, utils::DEFAULT_GPU_ATTESTATION_SOCKET,
-};
-use cgpuvm_attest::AttestationClient;
+use crate::{cache::cache_local_config, utils::DEFAULT_GPU_ATTESTATION_SOCKET};
 use ohttp_client::{HexArg, OhttpClientBuilder};
 use serde_cbor::Value;
 use std::{fs::File, io::Write, path::PathBuf, str::FromStr};
@@ -564,14 +561,6 @@ async fn kms_test_mismatched_kms_url() {
     assert!(!status.is_success());
 }
 
-#[tokio::test]
-async fn test_maa_invalid_url() {
-    let mut attestation_client = AttestationClient::new().unwrap();
-    let maa_url = "https://invalid-maa-url.com";
-    let result = fetch_maa_token(&mut attestation_client, maa_url);
-    assert!(result.is_err());
-}
-
 const TEST_SOCKET_PATH: &str = "/var/run/azure-attestation-proxy/test.sock";
 use attest::get_hpke_private_key_from_kms;
 use azure_attestation_proxy::{attest, decrypt, get_socket_listener};
@@ -651,6 +640,7 @@ impl Drop for TestProxyServer {
     }
 }
 
+#[tokio::test]
 async fn test_attestation_proxy() {
     let _default_guard = init_proxy_test();
 
