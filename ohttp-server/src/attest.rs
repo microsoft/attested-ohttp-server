@@ -91,14 +91,8 @@ pub async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: &Uuid) -> Re
 }
 
 pub async fn get_response(response: Response<Body>) -> Res<String> {
-    if !response.status().is_success() {
-        return Err(Box::new(ServerError::AzureAttestationProxyFailure(
-            format!(
-                "Azure Attestation proxy response status: {}",
-                response.status()
-            ),
-        )));
-    }
+    let status = response.status();
+    info!("Received response from Azure Attestation proxy: {}", status);
 
     let bytes = match hyper::body::to_bytes(response.into_body()).await {
         Ok(bytes) => bytes,
@@ -117,6 +111,15 @@ pub async fn get_response(response: Response<Body>) -> Res<String> {
             )));
         }
     };
+
+    if !status.is_success() {
+        return Err(Box::new(ServerError::AzureAttestationProxyFailure(
+            format!(
+                "Azure Attestation proxy response failed: {} {}",
+                status, str
+            ),
+        )));
+    }
 
     Ok(str)
 }
