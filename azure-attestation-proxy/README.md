@@ -5,7 +5,7 @@ sudo make install-attestation-proxy
 sudo make test-attestation-proxy
 
 sudo make run-whisper &
-sudo RUST_LOG=trace cargo test -- --test tests::test_attestation_proxy
+RUST_LOG=trace sudo -E env "PATH=$PATH"  cargo test -- --test tests::test_attestation_proxy
 
 ## Debugging
 systemctl status azure-attestation-proxy.service

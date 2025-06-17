@@ -100,7 +100,7 @@ jobs:
       - name: Install library
         run: |
           sudo mkdir -p /usr/local/lib
-          sudo cp ./ohttp-server/libazguestattestation.so.1.0.5 /usr/bin/
+          sudo cp ./azure-attestation-proxy/libazguestattestation.so.1.0.5 /usr/bin/
           sudo ln -s /usr/bin/libazguestattestation.so.1.0.5 /usr/lib/libazguestattestation.so.1
           sudo ln -s /usr/bin/libazguestattestation.so.1.0.5 /usr/lib/libazguestattestation.so
           sudo ldconfig
