@@ -512,7 +512,7 @@ async fn kms_test_invalid_kms_url() {
 }
 
 const KMS_URL_SERVER_DEBUG: &str =
-    "https://accconfinferencedebug.confidential-ledger.azure.com/app/key";
+    "https://accconfinferencedebug1.confidential-ledger.azure.com/app/key";
 
 #[tokio::test]
 // mismatched KMS for client and server
