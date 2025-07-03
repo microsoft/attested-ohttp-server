@@ -225,7 +225,7 @@ pub async fn score(
 
     let target_path = headers.get("enginetarget");
     let mode = args.mode();
-    let (resonse_code, response_option, error) = match post_request_to_target(
+    let (response_code, response_option, error) = match post_request_to_target(
         inject_headers,
         &request,
         target,
@@ -245,12 +245,12 @@ pub async fn score(
         }
     };
 
-    if resonse_code >=300 || resonse_code < 200 || response_option.is_none() {
+    if response_code >=300 || response_code < 200 || response_option.is_none() {
         error!("{}", b64.encode(error.to_string()));
         let chunk = error.to_string().into_bytes();
         let stream = futures::stream::once(async { Ok::<Vec<u8>, ohttp::Error>(chunk) });
         let stream = server_response.encapsulate_stream(stream);
-        return Ok(builder.status(resonse_code).body(Body::wrap_stream(stream)));
+        return Ok(builder.status(response_code).body(Body::wrap_stream(stream)));
     }
 
     let response = response_option.unwrap();
