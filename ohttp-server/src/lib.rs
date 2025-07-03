@@ -250,7 +250,9 @@ pub async fn score(
         let chunk = error.as_bytes().to_vec();
         let stream = futures::stream::once(async { Ok::<Vec<u8>, ohttp::Error>(chunk) });
         let stream = server_response.encapsulate_stream(stream);
-        return Ok(builder.status(response_code).body(Body::wrap_stream(stream)));
+        return Ok(builder
+            .status(response_code)
+            .body(Body::wrap_stream(stream)));
     }
 
     let response = response_option.unwrap();
