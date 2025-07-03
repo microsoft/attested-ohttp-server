@@ -261,7 +261,7 @@ pub async fn score(
         builder = builder.header(
             HeaderName::from_static("x-attestation-token"),
             token.clone(),
-        ); 
+        );
     }
 
     // Move headers from the inner response into the outer response
