@@ -246,8 +246,8 @@ pub async fn score(
     };
 
     if response_code >=300 || response_code < 200 || response_option.is_none() {
-        error!("{}", b64.encode(error.to_string()));
-        let chunk = error.to_string().into_bytes();
+        error!("{}", b64.encode(&error));
+        let chunk = error.as_bytes().to_vec();
         let stream = futures::stream::once(async { Ok::<Vec<u8>, ohttp::Error>(chunk) });
         let stream = server_response.encapsulate_stream(stream);
         return Ok(builder.status(response_code).body(Body::wrap_stream(stream)));
