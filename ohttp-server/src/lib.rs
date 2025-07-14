@@ -144,15 +144,15 @@ pub fn handle_error(
     error: String,
     server_response: ServerResponse,
     builder: warp::http::response::Builder,
-    response_code:u16,
-)-> Result<warp::http::Response<warp::hyper::Body>, warp::http::Error>{
+    response_code: u16,
+) -> Result<warp::http::Response<warp::hyper::Body>, warp::http::Error> {
     error!("{}", b64.encode(&error));
     let chunk = error.as_bytes().to_vec();
     let stream = futures::stream::once(async { Ok::<Vec<u8>, ohttp::Error>(chunk) });
     let stream = server_response.encapsulate_stream(stream);
     let res = builder
-          .status(response_code)
-          .body(Body::wrap_stream(stream));
+        .status(response_code)
+        .body(Body::wrap_stream(stream));
 
     return res;
 }
@@ -254,13 +254,20 @@ pub async fn score(
     {
         Ok(s) => s,
         Err(e) => {
-            let result =  handle_error(e.to_string(), server_response, builder, 400);
+            let result = handle_error(e.to_string(), server_response, builder, 400);
             return Ok(result);
         }
     };
 
-    if (response_code >= 300 || response_code < 200 || response_option.is_none()) && error_option.is_some() {
-        let result =  handle_error(error_option.unwrap(), server_response, builder, response_code);
+    if (response_code >= 300 || response_code < 200 || response_option.is_none())
+        && error_option.is_some()
+    {
+        let result = handle_error(
+            error_option.unwrap(),
+            server_response,
+            builder,
+            response_code,
+        );
         return Ok(result);
     }
 
