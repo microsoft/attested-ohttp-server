@@ -3,7 +3,6 @@ pub mod cache;
 pub mod err;
 pub mod utils;
 
-use err::ServerError;
 use ohttp::{Server as OhttpServer, ServerResponse};
 
 use tracing::info;
@@ -66,7 +65,7 @@ pub async fn post_request_to_target(
     target_path: Option<&HeaderValue>,
     _mode: Mode,
     x_ms_request_id: &Uuid,
-) -> Res<Response> {
+) -> Res<(u16, Option<Response>, Option<String>)> {
     let method: Method = if let Some(method_bytes) = bin_request.control().method() {
         Method::from_bytes(method_bytes)?
     } else {
@@ -110,12 +109,13 @@ pub async fn post_request_to_target(
         .send()
         .await?;
 
+    let response_code = response.status().as_u16();
     if !response.status().is_success() {
         let error_msg = response.text().await.unwrap_or_default();
-        return Err(Box::new(ServerError::TargetRequestError(error_msg)));
+        return Ok((response_code, None, Some(error_msg)));
     }
 
-    Ok(response)
+    Ok((response_code, Some(response), None))
 }
 
 pub fn decapsulate_request(
@@ -138,6 +138,23 @@ pub fn compute_injected_headers(headers: &HeaderMap, keys: Vec<String>) -> Heade
         }
     }
     result
+}
+
+pub fn handle_error(
+    error: String,
+    server_response: ServerResponse,
+    builder: warp::http::response::Builder,
+    response_code: u16,
+) -> Result<warp::http::Response<warp::hyper::Body>, warp::http::Error> {
+    error!("{}", b64.encode(&error));
+    let chunk = error.as_bytes().to_vec();
+    let stream = futures::stream::once(async { Ok::<Vec<u8>, ohttp::Error>(chunk) });
+    let stream = server_response.encapsulate_stream(stream);
+    let res = builder
+        .status(response_code)
+        .body(Body::wrap_stream(stream));
+
+    return res;
 }
 
 #[instrument(skip(headers, body, args), fields(version = %VERSION))]
@@ -225,7 +242,7 @@ pub async fn score(
 
     let target_path = headers.get("enginetarget");
     let mode = args.mode();
-    let response = match post_request_to_target(
+    let (response_code, response_option, error_option) = match post_request_to_target(
         inject_headers,
         &request,
         target,
@@ -237,13 +254,24 @@ pub async fn score(
     {
         Ok(s) => s,
         Err(e) => {
-            error!("{}", b64.encode(e.to_string()));
-            let chunk = e.to_string().into_bytes();
-            let stream = futures::stream::once(async { Ok::<Vec<u8>, ohttp::Error>(chunk) });
-            let stream = server_response.encapsulate_stream(stream);
-            return Ok(builder.status(400).body(Body::wrap_stream(stream)));
+            let result = handle_error(e.to_string(), server_response, builder, 400);
+            return Ok(result);
         }
     };
+
+    if (response_code >= 300 || response_code < 200 || response_option.is_none())
+        && error_option.is_some()
+    {
+        let result = handle_error(
+            error_option.unwrap(),
+            server_response,
+            builder,
+            response_code,
+        );
+        return Ok(result);
+    }
+
+    let response = response_option.unwrap();
 
     builder = builder.header("Content-Type", "message/ohttp-chunked-res");
     // Add HTTP header with MAA token, for client auditing.
