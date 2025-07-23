@@ -10,6 +10,7 @@ use warp::Filter;
 type Res<T> = Result<T, Box<dyn std::error::Error>>;
 use tracing::error;
 use uuid::Uuid;
+use warp::http::HeaderMap;
 
 #[tokio::main]
 async fn main() -> Res<()> {
@@ -34,9 +35,16 @@ async fn main() -> Res<()> {
         .and(warp::header::headers_cloned())
         .and(warp::body::bytes())
         .and(warp::any().map(move || Arc::clone(&args1)))
-        .and(warp::any().map(Uuid::new_v4))
-        .and_then(score);
-
+        .and_then(
+            |headers: HeaderMap, body: warp::hyper::body::Bytes, args: Arc<Args>| {
+                let uuid = headers
+                    .get("apim-request-id")
+                    .and_then(|val| val.to_str().ok())
+                    .and_then(|s| Uuid::parse_str(s).ok())
+                    .unwrap_or_else(Uuid::new_v4);
+                score(headers, body, args, uuid)
+            },
+        );
     let args2 = Arc::clone(&argsc);
     let discover = warp::get()
         .and(warp::path("discover"))
