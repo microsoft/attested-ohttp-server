@@ -2,6 +2,7 @@ from flask import Flask, abort, request
 from tempfile import NamedTemporaryFile
 import whisper
 import torch
+import bleach
 
 # Check if NVIDIA GPU is available
 torch.cuda.is_available()
@@ -43,5 +44,5 @@ def handler():
         })
 
     # This will be automatically converted to JSON.
-    return {'results': results}
+    return {'results': bleach.clean(str(results))}
   
