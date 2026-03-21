@@ -420,6 +420,7 @@ async fn get_kms_cert() -> Option<PathBuf> {
         for (key, value) in map {
             if let Value::Text(key_str) = key {
                 info!("Key: {}", key_str);
+                #[allow(clippy::collapsible_if)]
                 if key_str == "service_certificate" {
                     if let Value::Text(value_str) = value {
                         info!("service_certificate: {}", value_str);
@@ -563,7 +564,7 @@ async fn kms_test_mismatched_kms_url() {
 
 const TEST_SOCKET_PATH: &str = "/var/run/azure-attestation-proxy/test.sock";
 use attest::get_hpke_private_key_from_kms;
-use azure_attestation_proxy::{attest, decrypt, get_socket_listener};
+use azure_attestation_proxy::{attest, create_shared_client, decrypt, get_socket_listener};
 use hyper::{Body, Method, Request};
 use hyper_unix_connector::{UnixClient, Uri};
 
@@ -589,21 +590,27 @@ struct TestProxyServer {
 
 impl TestProxyServer {
     async fn start() -> Res<Self> {
+        let client = create_shared_client()?;
+
         let listener = match get_socket_listener(TEST_SOCKET_PATH).await {
             Ok(listener) => listener,
             Err(e) => return Err(e),
         };
 
+        let client_for_attest = client.clone();
         let attest = warp::get()
             .and(warp::path::path("attest"))
             .and(warp::path::end())
+            .and(warp::any().map(move || client_for_attest.clone()))
             .and(warp::header::header::<String>("maa"))
             .and(warp::header::header::<String>("x-ms-request-id"))
             .and_then(attest);
 
+        let client_for_decrypt = client.clone();
         let decrypt = warp::post()
             .and(warp::path::path("decrypt"))
             .and(warp::path::end())
+            .and(warp::any().map(move || client_for_decrypt.clone()))
             .and(warp::header::header::<String>("x-ms-request-id"))
             .and(warp::body::bytes())
             .and_then(decrypt);
