@@ -99,9 +99,20 @@ pub async fn attest(
             .attest_guest(Provider::maa(&maa), Some(&opts))
             .map_err(|e| format!("attest_guest failed: {e}"))?;
 
-        let token = result.token.unwrap_or_default();
-        trace!("Fetched MAA token ({} bytes)", token.len());
-        Ok::<String, String>(token)
+        let token_b64url = result.token.unwrap_or_default();
+        trace!(
+            "Fetched MAA token ({} bytes), decrypting...",
+            token_b64url.len()
+        );
+
+        // Decrypt the token envelope to extract the inner JWT.
+        let jwt = client
+            .decrypt_token(&result.pcrs, &token_b64url)
+            .map_err(|e| format!("decrypt_token failed: {e}"))?
+            .unwrap_or(token_b64url);
+
+        trace!("Decrypted JWT ({} bytes)", jwt.len());
+        Ok::<String, String>(jwt)
     })
     .await;
 
@@ -130,37 +141,23 @@ pub async fn decrypt(
     x_ms_request_id: String,
     body: bytes::Bytes,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
-    let token_b64url = match String::from_utf8(body.to_vec()) {
-        Ok(s) => s,
-        Err(e) => {
-            error!("Invalid UTF-8 in request body: {e}");
-            return Ok(warp::reply::with_status(
-                format!("{}", ServerError::TPMDecryptionFailure),
-                warp::http::StatusCode::BAD_REQUEST,
-            ));
-        }
-    };
-    trace!("Token envelope: {} bytes", token_b64url.len());
+    trace!("Ciphertext body: {} bytes", body.len());
 
     let result = tokio::task::spawn_blocking(move || {
         client
-            .decrypt_token(&PCRS, &token_b64url)
-            .map_err(|e| format!("decrypt_token failed: {e}"))
+            .decrypt_with_tpm_ephemeral_key(&PCRS, &body)
+            .map_err(|e| format!("decrypt_with_tpm_ephemeral_key failed: {e}"))
     })
     .await;
 
     match result {
-        Ok(Ok(Some(jwt))) => {
-            let encoded = b64.encode(jwt.as_bytes());
+        Ok(Ok(plaintext)) => {
+            let encoded = b64.encode(&plaintext);
             Ok(warp::reply::with_status(
                 encoded,
                 warp::http::StatusCode::OK,
             ))
         }
-        Ok(Ok(None)) => Ok(warp::reply::with_status(
-            "Token is not in encrypted envelope format".to_string(),
-            warp::http::StatusCode::BAD_REQUEST,
-        )),
         Ok(Err(e)) => {
             error!("Decryption failed: {e}");
             Ok(warp::reply::with_status(

@@ -16,5 +16,5 @@ hyper-unix-connector = "0.2.2"
 base64 = "0.22.1"
 
 [dependencies.azure-guest-attestation-sdk]
-git = "https://github.com/Azure/azure-guest-attestation-sdk"
-rev = "e3c831e"
+git = "https://github.com/mingweishih/azure-guest-attestation-sdk"
+rev = "73eefc6"
