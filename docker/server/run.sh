@@ -34,6 +34,10 @@ if [[ -n ${LOCAL_KEY} ]]; then
   CMD="$CMD --local-key"
 fi
 
+if [[ -n ${OHTTP_BIND_ADDRESS} ]]; then
+  CMD="$CMD --address ${OHTTP_BIND_ADDRESS}"
+fi
+
 if [[ -n ${INJECT_HEADERS} ]]; then 
   CMD="$CMD --inject-request-headers ${INJECT_HEADERS}"
 fi
