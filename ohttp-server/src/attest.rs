@@ -26,6 +26,8 @@ use tokio::time::{Duration, sleep};
 use serde_cbor::Value;
 
 const KID_NOT_FOUND_RETRY_TIMER: u64 = 60;
+const ATTESTATION_PROXY_MAX_RETRIES: u8 = 3;
+const ATTESTATION_PROXY_RETRY_DELAY_SECS: u64 = 2;
 
 const SOCKET_PATH: &str = "/var/run/azure-attestation-proxy/azure-attestation-proxy.sock";
 use hyper::{Body, Method, Request, Response};
@@ -132,27 +134,42 @@ pub async fn fetch_maa_token(maa: &str, x_ms_request_id: &Uuid) -> Res<String> {
     let addr: hyper::Uri = Uri::new(SOCKET_PATH, "/attest").into();
     trace!("Azure Attestation proxy request URI for attest: {}", addr);
 
-    let req = Request::builder()
-        .method(Method::GET)
-        .uri(addr)
-        .header("x-ms-request-id", x_ms_request_id.to_string())
-        .header("maa", maa)
-        .body(Body::empty())
-        .expect("request builder");
+    for attempt in 1..=ATTESTATION_PROXY_MAX_RETRIES {
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(addr.clone())
+            .header("x-ms-request-id", x_ms_request_id.to_string())
+            .header("maa", maa)
+            .body(Body::empty())
+            .expect("request builder");
 
-    let response = match client.request(req).await {
-        Ok(response) => response,
-        Err(e) => {
-            return Err(Box::new(ServerError::AzureAttestationProxyFailure(
-                format!("Failed to connect to Azure Attestation proxy : {e}"),
-            )));
+        match client.request(req).await {
+            Ok(response) => {
+                let token = get_response(response).await?;
+                trace!("Fetched MAA token: {token}");
+                return Ok(token);
+            }
+            Err(e) if attempt < ATTESTATION_PROXY_MAX_RETRIES => {
+                error!(
+                    "Azure Attestation proxy attest attempt {attempt}/{} failed: {e}",
+                    ATTESTATION_PROXY_MAX_RETRIES
+                );
+                sleep(Duration::from_secs(ATTESTATION_PROXY_RETRY_DELAY_SECS)).await;
+            }
+            Err(e) => {
+                return Err(Box::new(ServerError::AzureAttestationProxyFailure(
+                    format!(
+                        "Failed to connect to Azure Attestation proxy after {} attempts: {e}",
+                        ATTESTATION_PROXY_MAX_RETRIES
+                    ),
+                )));
+            }
         }
-    };
+    }
 
-    let token = get_response(response).await?;
-    trace!("Fetched MAA token: {token}");
-
-    Ok(token)
+    Err(Box::new(ServerError::AzureAttestationProxyFailure(
+        "Azure Attestation proxy did not return a token".to_string(),
+    )))
 }
 
 pub async fn decrypt_key(enc_key: Vec<u8>, x_ms_request_id: &Uuid) -> Res<String> {
@@ -220,7 +237,7 @@ pub async fn get_hpke_private_key_from_kms(
                     );
                     sleep(Duration::from_secs(1)).await;
                 } else {
-                    return Err(Box::new(ServerError::KMSUnreachable));
+                    return Err(Box::new(ServerError::KMSUnreachable) as Box<dyn std::error::Error>);
                 }
             }
             200 => {
@@ -234,13 +251,15 @@ pub async fn get_hpke_private_key_from_kms(
                 );
 
                 if skr.kid != kid {
-                    return Err(Box::new(Error::KeyIdMismatch(skr.kid, kid)));
+                    return Err(
+                        Box::new(Error::KeyIdMismatch(skr.kid, kid)) as Box<dyn std::error::Error>
+                    );
                 }
 
                 return Ok(skr.key);
             }
             e => {
-                return Err(Box::new(ServerError::KMSUnexpected(e)));
+                return Err(Box::new(ServerError::KMSUnexpected(e)) as Box<dyn std::error::Error>);
             }
         }
     }

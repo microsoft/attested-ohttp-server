@@ -35,10 +35,6 @@ uuid = { version = "1.0", features = ["v4"] }
 hyper-unix-connector = "0.2.2"
 tokio-stream = { version = "0.1", features = ["net"] }
 
-[dependencies.cgpuvm-attest]
-path= "../cgpuvm-attest"
-features = []
-
 [dependencies.azure-attestation-proxy]
 path= "../azure-attestation-proxy"
 features = []
