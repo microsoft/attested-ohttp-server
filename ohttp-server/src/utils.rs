@@ -14,7 +14,7 @@ use std::net::SocketAddr;
 #[command(name = "ohttp-server", about = "Serve oblivious HTTP requests.")]
 pub struct Args {
     /// The address to bind to.
-    #[arg(default_value = "127.0.0.1:9443")]
+    #[arg(long, default_value = "127.0.0.1:9443")]
     pub address: SocketAddr,
 
     /// When creating message/bhttp, use the indeterminate-length form.
