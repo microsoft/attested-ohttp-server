@@ -58,10 +58,6 @@ run-attestation-proxy-builder:
 	chmod 755 azure-attestation-proxy/bin/azure-attestation-proxy
 
 install-attestation-proxy: build-attestation-proxy-builder run-attestation-proxy-builder
-	cp azure-attestation-proxy/libazguestattestation.so.1.0.5 /usr/bin
-	ln -sf /usr/bin/libazguestattestation.so.1.0.5 /usr/lib/libazguestattestation.so.1
-	ln -sf /usr/bin/libazguestattestation.so.1.0.5 /usr/lib/libazguestattestation.so
-	ldconfig
 	azure-attestation-proxy/install.sh --enable-service
 
 test-attestation-proxy:

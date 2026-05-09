@@ -1,4 +1,4 @@
-use std::{os::unix::fs::PermissionsExt, path::Path};
+use std::{os::unix::fs::PermissionsExt, path::Path, sync::Arc};
 use tokio::net::UnixListener;
 use tracing::{error, info, instrument, trace};
 
@@ -6,18 +6,40 @@ pub const VERSION: &str = "0.0.88.0";
 
 pub type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
-pub const PCR0_TO_15_BITMASK: u32 = 0xFFFF;
+/// PCR indices 0–15 (equivalent to the old C library's PCR0_TO_15_BITMASK = 0xFFFF).
+pub const PCRS: [u32; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
+use azure_guest_attestation_sdk::client::{AttestOptions, AttestationClient, Provider};
 use base64::{Engine as _, engine::general_purpose::STANDARD as b64};
-use cgpuvm_attest::AttestationClient;
 
 use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum ServerError {
-    #[error("CVM guest attestation library initialization failure")]
-    AttestationLibraryInit,
+    #[error("Failed to initialize attestation client (TPM access requires root)")]
+    AttestationClientInit,
     #[error("Guest attestation library failed to decrypt HPKE private key")]
     TPMDecryptionFailure,
+}
+
+/// Shared [`AttestationClient`] handle.
+///
+/// The ephemeral RSA key used for attestation is a deterministic TPM2 primary
+/// that can be recreated from the same PCR selection at any time, so no
+/// per-request state (key handle, PCR list) needs to be carried between
+/// `/attest` and `/decrypt`.
+pub type SharedClient = Arc<AttestationClient>;
+
+/// Open the platform TPM and create a shared [`AttestationClient`].
+///
+/// Call this once at process start and pass the result to
+/// [`attest`] / [`decrypt`] via warp filters.
+pub fn create_shared_client() -> Res<SharedClient> {
+    let client = AttestationClient::new().map_err(|e| {
+        error!("Failed to open TPM / create AttestationClient: {e}");
+        Box::<dyn std::error::Error>::from(ServerError::AttestationClientInit.to_string())
+    })?;
+    trace!("Created AttestationClient successfully");
+    Ok(Arc::new(client))
 }
 
 pub async fn get_socket_listener(socket_path: &str) -> Res<UnixListener> {
@@ -57,94 +79,100 @@ pub async fn get_socket_listener(socket_path: &str) -> Res<UnixListener> {
     Ok(listener)
 }
 
-fn create_attestation_client() -> Res<AttestationClient> {
-    let attestation_client = match AttestationClient::new() {
-        Ok(client) => client,
-        Err(e) => {
-            error!("Failed to create AttestationClient: {}", e);
-            return Err(Box::new(ServerError::AttestationLibraryInit));
-        }
-    };
-    trace!("Created AttestationClient successfully");
-    Ok(attestation_client)
-}
-
-#[instrument(skip(maa), fields(version = %VERSION))]
+#[instrument(skip(client, maa), fields(version = %VERSION))]
 pub async fn attest(
+    client: SharedClient,
     maa: String,
     x_ms_request_id: String,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
     trace!("Maa: {}", maa);
 
-    let mut attestation_client = match create_attestation_client() {
-        Ok(attestation_client) => attestation_client,
-        Err(e) => {
-            return Ok(warp::reply::with_status(
-                format!("{}", e),
-                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-            ));
-        }
-    };
+    let result = tokio::task::spawn_blocking(move || {
+        info!("Fetching MAA token from {maa}");
 
-    let token = match fetch_maa_token(&mut attestation_client, &maa) {
-        Ok(token) => token,
-        Err(e) => {
-            error!("Failed to fetch MAA token: {}", e);
-            return Ok(warp::reply::with_status(
-                format!("{e}"),
-                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-            ));
-        }
-    };
+        let opts = AttestOptions {
+            pcr_selection: Some(PCRS.to_vec()),
+            ..Default::default()
+        };
 
-    Ok(warp::reply::with_status(token, warp::http::StatusCode::OK))
+        let result = client
+            .attest_guest(Provider::maa(&maa), Some(&opts))
+            .map_err(|e| format!("attest_guest failed: {e}"))?;
+
+        let token_b64url = result.token.unwrap_or_default();
+        trace!(
+            "Fetched MAA token ({} bytes), decrypting...",
+            token_b64url.len()
+        );
+
+        // Decrypt the token envelope to extract the inner JWT.
+        let jwt = client
+            .decrypt_token(&result.pcrs, &token_b64url)
+            .map_err(|e| format!("decrypt_token failed: {e}"))?
+            .unwrap_or(token_b64url);
+
+        trace!("Decrypted JWT ({} bytes)", jwt.len());
+        Ok::<String, String>(jwt)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(token)) => Ok(warp::reply::with_status(token, warp::http::StatusCode::OK)),
+        Ok(Err(e)) => {
+            error!("Attestation failed: {e}");
+            Ok(warp::reply::with_status(
+                e,
+                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        }
+        Err(e) => {
+            error!("spawn_blocking panicked: {e}");
+            Ok(warp::reply::with_status(
+                format!("internal error: {e}"),
+                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        }
+    }
 }
 
-fn fetch_maa_token(attestation_client: &mut AttestationClient, maa: &str) -> Res<String> {
-    // Get MAA token from CVM guest attestation library
-    info!("Fetching MAA token from {maa}");
-
-    let t = attestation_client.attest("{}".as_bytes(), PCR0_TO_15_BITMASK, maa)?;
-
-    let token = String::from_utf8(t).unwrap();
-    trace!("Fetched MAA token: {token}");
-    Ok(token)
-}
-
-#[instrument(skip( body), fields(version = %VERSION))]
+#[instrument(skip(client, body), fields(version = %VERSION))]
 pub async fn decrypt(
+    client: SharedClient,
     x_ms_request_id: String,
     body: bytes::Bytes,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
-    let enc_key: &[u8] = body.as_ref();
-    trace!("Encrypted key: {:?}", enc_key);
+    trace!("Ciphertext body: {} bytes", body.len());
 
-    let mut attestation_client = match create_attestation_client() {
-        Ok(attestation_client) => attestation_client,
-        Err(e) => {
-            return Ok(warp::reply::with_status(
-                format!("{}", e),
-                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-            ));
+    let result = tokio::task::spawn_blocking(move || {
+        client
+            .decrypt_with_tpm_ephemeral_key(&PCRS, &body)
+            .map_err(|e| format!("decrypt_with_tpm_ephemeral_key failed: {e}"))
+    })
+    .await;
+
+    match result {
+        Ok(Ok(plaintext)) => {
+            let encoded = b64.encode(&plaintext);
+            Ok(warp::reply::with_status(
+                encoded,
+                warp::http::StatusCode::OK,
+            ))
         }
-    };
-
-    let decrypted_key = match attestation_client.decrypt(&enc_key, PCR0_TO_15_BITMASK) {
-        Ok(decrypted_key) => decrypted_key,
-        Err(e) => {
-            error!("Failed to decrypt key: {}", e);
-            return Ok(warp::reply::with_status(
+        Ok(Err(e)) => {
+            error!("Decryption failed: {e}");
+            Ok(warp::reply::with_status(
                 format!("{}", ServerError::TPMDecryptionFailure),
                 warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-            ));
+            ))
         }
-    };
-
-    let encoded = b64.encode(&decrypted_key);
-    Ok(warp::reply::with_status(
-        encoded,
-        warp::http::StatusCode::OK,
-    ))
+        Err(e) => {
+            error!("spawn_blocking panicked: {e}");
+            Ok(warp::reply::with_status(
+                format!("internal error: {e}"),
+                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        }
+    }
 }
 
 #[cfg(test)]

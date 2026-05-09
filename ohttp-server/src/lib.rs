@@ -95,6 +95,7 @@ pub async fn post_request_to_target(
             t.set_path(path_str);
         }
     } else if let Some(path_bytes) = bin_request.control().path() {
+        #[allow(clippy::collapsible_if)]
         if let Ok(path_str) = std::str::from_utf8(path_bytes) {
             t.set_path(path_str);
         }
@@ -131,6 +132,7 @@ pub fn decapsulate_request(
 pub fn compute_injected_headers(headers: &HeaderMap, keys: Vec<String>) -> HeaderMap {
     let mut result = HeaderMap::new();
     for key in keys {
+        #[allow(clippy::collapsible_if)]
         if let Ok(header_name) = HeaderName::try_from(key) {
             if let Some(value) = headers.get(&header_name) {
                 result.insert(header_name, value.clone());
@@ -150,11 +152,9 @@ pub fn handle_error(
     let chunk = error.as_bytes().to_vec();
     let stream = futures::stream::once(async { Ok::<Vec<u8>, ohttp::Error>(chunk) });
     let stream = server_response.encapsulate_stream(stream);
-    let res = builder
+    builder
         .status(response_code)
-        .body(Body::wrap_stream(stream));
-
-    return res;
+        .body(Body::wrap_stream(stream))
 }
 
 #[instrument(skip(headers, body, args), fields(version = %VERSION))]
@@ -259,8 +259,8 @@ pub async fn score(
         }
     };
 
-    if (response_code >= 300 || response_code < 200 || response_option.is_none())
-        && error_option.is_some()
+    #[allow(clippy::unnecessary_unwrap)]
+    if (!(200..300).contains(&response_code) || response_option.is_none()) && error_option.is_some()
     {
         let result = handle_error(
             error_option.unwrap(),
