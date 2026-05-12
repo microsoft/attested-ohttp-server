@@ -1,6 +1,6 @@
 use super::*;
+use azure_guest_attestation_sdk::AttestationClient;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use cgpuvm_attest::AttestationClient;
 use std::{fs::File, io::Read};
 
 #[tokio::test]

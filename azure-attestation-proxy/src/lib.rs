@@ -1,5 +1,5 @@
 use std::{os::unix::fs::PermissionsExt, path::Path};
-use tokio::net::UnixListener;
+use tokio::{net::UnixListener, task};
 use tracing::{error, info, instrument, trace};
 
 pub const VERSION: &str = "0.0.88.0";
@@ -8,8 +8,11 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
 pub const PCR0_TO_15_BITMASK: u32 = 0xFFFF;
 
+use azure_guest_attestation_sdk::{
+    AttestOptions, AttestationClient, Provider,
+    tpm::types::{ALG_SHA256, TpmtRsaDecryptScheme},
+};
 use base64::{Engine as _, engine::general_purpose::STANDARD as b64};
-use cgpuvm_attest::AttestationClient;
 
 use thiserror::Error;
 #[derive(Error, Debug)]
@@ -18,6 +21,10 @@ pub enum ServerError {
     AttestationLibraryInit,
     #[error("Guest attestation library failed to decrypt HPKE private key")]
     TPMDecryptionFailure,
+}
+
+fn attestation_pcrs() -> Vec<u32> {
+    (0..=15).collect()
 }
 
 pub async fn get_socket_listener(socket_path: &str) -> Res<UnixListener> {
@@ -74,24 +81,30 @@ pub async fn attest(
     maa: String,
     x_ms_request_id: String,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
-    trace!("Maa: {}", maa);
+    trace!(
+        "attest request maa_url: {} x_ms_request_id: {}",
+        maa, x_ms_request_id
+    );
 
-    let mut attestation_client = match create_attestation_client() {
-        Ok(attestation_client) => attestation_client,
-        Err(e) => {
-            return Ok(warp::reply::with_status(
-                format!("{}", e),
-                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-            ));
-        }
-    };
+    let attest_result = task::spawn_blocking(move || -> Result<String, String> {
+        let attestation_client = create_attestation_client().map_err(|e| e.to_string())?;
+        fetch_maa_token(&attestation_client, &maa).map_err(|e| e.to_string())
+    })
+    .await;
 
-    let token = match fetch_maa_token(&mut attestation_client, &maa) {
-        Ok(token) => token,
-        Err(e) => {
+    let token = match attest_result {
+        Ok(Ok(token)) => token,
+        Ok(Err(e)) => {
             error!("Failed to fetch MAA token: {}", e);
             return Ok(warp::reply::with_status(
                 format!("{e}"),
+                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ));
+        }
+        Err(e) => {
+            error!("Attestation worker task failed: {}", e);
+            return Ok(warp::reply::with_status(
+                "Attestation worker task failed".to_string(),
                 warp::http::StatusCode::INTERNAL_SERVER_ERROR,
             ));
         }
@@ -100,13 +113,21 @@ pub async fn attest(
     Ok(warp::reply::with_status(token, warp::http::StatusCode::OK))
 }
 
-fn fetch_maa_token(attestation_client: &mut AttestationClient, maa: &str) -> Res<String> {
-    // Get MAA token from CVM guest attestation library
+fn fetch_maa_token(attestation_client: &AttestationClient, maa: &str) -> Res<String> {
+    // Get MAA token from Azure Guest Attestation SDK
     info!("Fetching MAA token from {maa}");
 
-    let t = attestation_client.attest("{}".as_bytes(), PCR0_TO_15_BITMASK, maa)?;
+    let pcrs = attestation_pcrs();
 
-    let token = String::from_utf8(t).unwrap();
+    let result = attestation_client.attest_guest(
+        Provider::maa(maa),
+        Some(&AttestOptions {
+            pcr_selection: Some(pcrs.clone()),
+            client_payload: None,
+            ..Default::default()
+        }),
+    )?;
+    let token = result.token.unwrap_or_default();
     trace!("Fetched MAA token: {token}");
     Ok(token)
 }
@@ -116,23 +137,32 @@ pub async fn decrypt(
     x_ms_request_id: String,
     body: bytes::Bytes,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
-    let enc_key: &[u8] = body.as_ref();
-    trace!("Encrypted key: {:?}", enc_key);
+    let enc_key = body.to_vec();
+    trace!(
+        "decrypt request encrypted_key: {:?} x_ms_request_id: {}",
+        enc_key, x_ms_request_id
+    );
 
-    let mut attestation_client = match create_attestation_client() {
-        Ok(attestation_client) => attestation_client,
-        Err(e) => {
+    let pcrs = attestation_pcrs();
+    let decrypt_result = task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let attestation_client = create_attestation_client().map_err(|e| e.to_string())?;
+        attestation_client
+            .decrypt_with_tpm_ephemeral_key(&pcrs, &enc_key, TpmtRsaDecryptScheme::Oaep(ALG_SHA256))
+            .map_err(|e| e.to_string())
+    })
+    .await;
+
+    let decrypted_key = match decrypt_result {
+        Ok(Ok(decrypted_key)) => decrypted_key,
+        Ok(Err(e)) => {
+            error!("Failed to decrypt key: {}", e);
             return Ok(warp::reply::with_status(
-                format!("{}", e),
+                format!("{}", ServerError::TPMDecryptionFailure),
                 warp::http::StatusCode::INTERNAL_SERVER_ERROR,
             ));
         }
-    };
-
-    let decrypted_key = match attestation_client.decrypt(&enc_key, PCR0_TO_15_BITMASK) {
-        Ok(decrypted_key) => decrypted_key,
         Err(e) => {
-            error!("Failed to decrypt key: {}", e);
+            error!("Decrypt worker task failed: {}", e);
             return Ok(warp::reply::with_status(
                 format!("{}", ServerError::TPMDecryptionFailure),
                 warp::http::StatusCode::INTERNAL_SERVER_ERROR,
