@@ -656,7 +656,7 @@ async fn test_attestation_proxy() {
         .method(Method::GET)
         .uri(addr)
         .header("x-ms-request-id", "12345678-1234-5678-1234-567812345678")
-        .header("maa", "https://maanosecureboottestyfu.eus.attest.azure.net")
+        .header("maa", "https://confinferencemaaeus2prod.eus2.attest.azure.net")
         .body(Body::empty())
         .expect("request builder");
 
