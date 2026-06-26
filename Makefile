@@ -1,5 +1,5 @@
 KMS ?= https://accconfinferenceproduction.confidential-ledger.azure.com
-MAA ?= https://maanosecureboottestyfu.eus.attest.azure.net
+MAA ?= https://confinferencemaaeus2prod.eus2.attest.azure.net
 REQUEST_ID ?= 12345678-1234-5678-1234-567812345678
 
 export TARGET ?= http://127.0.0.1:3000

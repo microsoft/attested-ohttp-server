@@ -3,8 +3,8 @@ use azure_guest_attestation_sdk::AttestationClient;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use std::{fs::File, io::Read};
 
-#[tokio::test]
-async fn test_maa_invalid_url() {
+#[test]
+fn test_maa_invalid_url() {
     let mut attestation_client = AttestationClient::new().unwrap();
     let maa_url = "https://invalid-maa-url.com";
     let result = fetch_maa_token(&mut attestation_client, maa_url);
@@ -25,8 +25,8 @@ fn event_in_tpm_event_log(search_string: &str) -> bool {
         .any(|window| window == search_bytes)
 }
 
-#[tokio::test]
-async fn test_maa_valid_urls() {
+#[test]
+fn test_maa_valid_urls() {
     const OS_IMAGE_IDENTITY_EVENTNAME: &str = "os-image-identity";
     const NODE_POLICY_IDENTITY_EVENTNAME: &str = "node-policy-identity";
     let os_identity_event_present = event_in_tpm_event_log(OS_IMAGE_IDENTITY_EVENTNAME);
@@ -40,7 +40,11 @@ async fn test_maa_valid_urls() {
     // and, if os identity and node policy claims are present in TPM event log, they should be present in claims returned by MAA
     for url in maa_urls {
         let result = fetch_maa_token(&mut attestation_client, url);
-        assert!(result.is_ok());
+        assert!(
+            result.is_ok(),
+            "fetch_maa_token failed for {url}: {:?}",
+            result.err()
+        );
         let token = result.unwrap();
         // valid MAA JWT is dot separated list of header.payload.signature
         let token_arr: Vec<&str> = token.split('.').collect();
