@@ -21,6 +21,8 @@ pub enum ServerError {
     KMSField,
     #[error("Bad key identifier in SKR response")]
     KMSKeyId,
+    #[error("Ledger identity service returned ledger {0}, expected {1}")]
+    KMSLedgerIdentityMismatch(String, String),
     #[error("KMS URL is not an Azure confidential ledger endpoint")]
     KMSUntrustedEndpoint,
     #[error("KMS returned an unexpected status code: {0}")]

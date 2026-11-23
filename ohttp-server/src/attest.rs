@@ -249,10 +249,18 @@ pub async fn get_kms_service_cert(kms: &str) -> Res<String> {
         .error_for_status()?
         .json()
         .await?;
-    if identity.ledger_id != ledger {
-        return Err(ServerError::KMSUntrustedEndpoint.into());
-    }
+    let service_cert = validate_ledger_identity(identity, &ledger)?;
     info!("Retrieved service certificate for ledger {ledger}");
+    Ok(service_cert)
+}
+
+/// Returns the TLS service certificate in `identity` if it belongs to `ledger`.
+fn validate_ledger_identity(identity: LedgerIdentity, ledger: &str) -> Res<String> {
+    if identity.ledger_id != ledger {
+        return Err(
+            ServerError::KMSLedgerIdentityMismatch(identity.ledger_id, ledger.to_string()).into(),
+        );
+    }
     Ok(identity.ledger_tls_certificate)
 }
 
@@ -575,6 +583,31 @@ mod kms_tls_tests {
             Some(ServerError::KMSUnexpected(307))
         ));
         assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    fn ledger_identity(ledger_id: &str) -> LedgerIdentity {
+        LedgerIdentity {
+            ledger_id: ledger_id.to_string(),
+            ledger_tls_certificate: "service-cert".to_string(),
+        }
+    }
+
+    #[test]
+    fn ledger_identity_returns_cert_for_matching_ledger() {
+        assert_eq!(
+            validate_ledger_identity(ledger_identity("example"), "example").unwrap(),
+            "service-cert"
+        );
+    }
+
+    #[test]
+    fn ledger_identity_rejects_other_ledger() {
+        let err = validate_ledger_identity(ledger_identity("other"), "example").unwrap_err();
+        assert!(matches!(
+            err.downcast_ref::<ServerError>(),
+            Some(ServerError::KMSLedgerIdentityMismatch(returned, expected))
+                if returned == "other" && expected == "example"
+        ));
     }
 
     #[test]
