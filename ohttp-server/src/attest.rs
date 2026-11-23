@@ -12,7 +12,7 @@ use uuid::Uuid;
 use warp::hyper;
 
 use hpke::Deserializable;
-use reqwest::Client;
+use reqwest::{Certificate, Client, ClientBuilder, Url, redirect};
 use serde::Deserialize;
 use serde_json::from_str;
 
@@ -29,6 +29,15 @@ const KID_NOT_FOUND_RETRY_TIMER: u64 = 60;
 const ATTESTATION_PROXY_MAX_RETRIES: u8 = 3;
 const ATTESTATION_PROXY_RETRY_DELAY_SECS: u64 = 2;
 
+/// Host suffix of Azure confidential ledgers; the KMS runs on one.
+const LEDGER_HOST_SUFFIX: &str = ".confidential-ledger.azure.com";
+/// Azure service that publishes each ledger's TLS service certificate.
+const LEDGER_IDENTITY_URL: &str =
+    "https://identity.confidential-ledger.core.azure.com/ledgerIdentity";
+const LEDGER_IDENTITY_API_VERSION: &str = "2022-05-13";
+/// Upper bound for each ledger identity or key release request.
+const KMS_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
 const SOCKET_PATH: &str = "/var/run/azure-attestation-proxy/azure-attestation-proxy.sock";
 use hyper::{Body, Method, Request, Response};
 use hyper_unix_connector::{UnixClient, Uri};
@@ -38,6 +47,14 @@ struct ExportedKey {
     kid: u8,
     key: String,
     receipt: String,
+}
+
+/// Ledger identity returned by `LEDGER_IDENTITY_URL`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LedgerIdentity {
+    ledger_id: String,
+    ledger_tls_certificate: String,
 }
 
 pub async fn do_gpu_attestation(socket_path: &str, x_ms_request_id: &Uuid) -> Res<()> {
@@ -198,6 +215,55 @@ pub async fn decrypt_key(enc_key: Vec<u8>, x_ms_request_id: &Uuid) -> Res<String
     Ok(dec_key)
 }
 
+/// HTTPS-only client builder that does not follow redirects and bounds request time.
+fn kms_client_builder() -> ClientBuilder {
+    Client::builder()
+        .https_only(true)
+        .redirect(redirect::Policy::none())
+        .timeout(KMS_REQUEST_TIMEOUT)
+}
+
+/// Returns the ledger name of an `https://<ledger>.confidential-ledger.azure.com` KMS URL.
+fn ledger_name(kms: &str) -> Res<String> {
+    let url = Url::parse(kms)?;
+    if url.scheme() != "https" {
+        return Err(ServerError::KMSUntrustedEndpoint.into());
+    }
+    url.host_str()
+        .and_then(|host| host.strip_suffix(LEDGER_HOST_SUFFIX))
+        .filter(|ledger| !ledger.is_empty() && !ledger.contains('.'))
+        .map(String::from)
+        .ok_or_else(|| ServerError::KMSUntrustedEndpoint.into())
+}
+
+/// Retrieves the KMS ledger's TLS service certificate (PEM) from the Azure ledger identity service.
+pub async fn get_kms_service_cert(kms: &str) -> Res<String> {
+    let ledger = ledger_name(kms)?;
+    let identity: LedgerIdentity = kms_client_builder()
+        .build()?
+        .get(format!(
+            "{LEDGER_IDENTITY_URL}/{ledger}?api-version={LEDGER_IDENTITY_API_VERSION}"
+        ))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let service_cert = validate_ledger_identity(identity, &ledger)?;
+    info!("Retrieved service certificate for ledger {ledger}");
+    Ok(service_cert)
+}
+
+/// Returns the TLS service certificate in `identity` if it belongs to `ledger`.
+fn validate_ledger_identity(identity: LedgerIdentity, ledger: &str) -> Res<String> {
+    if identity.ledger_id != ledger {
+        return Err(
+            ServerError::KMSLedgerIdentityMismatch(identity.ledger_id, ledger.to_string()).into(),
+        );
+    }
+    Ok(identity.ledger_tls_certificate)
+}
+
 /// Retrieves the HPKE private key from Azure KMS.
 ///
 pub async fn get_hpke_private_key_from_kms(
@@ -206,8 +272,21 @@ pub async fn get_hpke_private_key_from_kms(
     token: &str,
     x_ms_request_id: &Uuid,
 ) -> Res<String> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
+    let service_cert = get_kms_service_cert(kms).await?;
+    release_hpke_private_key(kms, &service_cert, kid, token, x_ms_request_id).await
+}
+
+/// Requests the HPKE private key from KMS, trusting only KMS nodes endorsed by `service_cert`.
+async fn release_hpke_private_key(
+    kms: &str,
+    service_cert: &str,
+    kid: u8,
+    token: &str,
+    x_ms_request_id: &Uuid,
+) -> Res<String> {
+    let client = kms_client_builder()
+        .tls_built_in_root_certs(false)
+        .add_root_certificate(Certificate::from_pem(service_cert.as_bytes())?)
         .build()?;
 
     // Retrying logic for receipt
@@ -402,6 +481,155 @@ pub async fn load_config_token_safe(
             let err = format!("Error loading OHTTP key configuration {kid}: {e:?}");
             error!("{err}");
             Err(err)
+        }
+    }
+}
+
+#[cfg(test)]
+mod kms_tls_tests {
+    use super::*;
+    use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use warp::{Filter, http::StatusCode};
+
+    const TEST_KID: u8 = 7;
+    const TEST_KEY: &str = "wrapped-key";
+
+    /// Self-signed CA standing in for a ledger's TLS service certificate.
+    struct ServiceIdentity {
+        cert: rcgen::Certificate,
+        key: KeyPair,
+    }
+
+    impl ServiceIdentity {
+        fn new() -> Self {
+            let key = KeyPair::generate().unwrap();
+            let mut params = CertificateParams::default();
+            params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+            let cert = params.self_signed(&key).unwrap();
+            Self { cert, key }
+        }
+    }
+
+    /// Starts a local KMS whose node certificate for `hostname` is endorsed by `identity`.
+    /// Returns the KMS URL and a counter of key release requests it received.
+    fn start_kms(
+        identity: &ServiceIdentity,
+        hostname: &str,
+        status: StatusCode,
+    ) -> (String, Arc<AtomicUsize>) {
+        let node_key = KeyPair::generate().unwrap();
+        let node_cert = CertificateParams::new(vec![hostname.to_string()])
+            .unwrap()
+            .signed_by(&node_key, &identity.cert, &identity.key)
+            .unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let counter = requests.clone();
+        let route = warp::post().and(warp::path!("app" / "key")).map(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            let body = serde_json::json!({"kid": TEST_KID, "key": TEST_KEY, "receipt": ""});
+            let reply = warp::reply::with_status(warp::reply::json(&body), status);
+            warp::reply::with_header(reply, "location", "/app/key")
+        });
+        let (addr, server) = warp::serve(route)
+            .tls()
+            .cert(node_cert.pem())
+            .key(node_key.serialize_pem())
+            .bind_ephemeral(([127, 0, 0, 1], 0));
+        tokio::spawn(server);
+        (
+            format!("https://localhost:{}/app/key", addr.port()),
+            requests,
+        )
+    }
+
+    async fn release(url: &str, trusted: &ServiceIdentity) -> Res<String> {
+        release_hpke_private_key(url, &trusted.cert.pem(), TEST_KID, "token", &Uuid::nil()).await
+    }
+
+    #[tokio::test]
+    async fn skr_accepts_node_endorsed_by_ledger_identity() {
+        let identity = ServiceIdentity::new();
+        let (url, requests) = start_kms(&identity, "localhost", StatusCode::OK);
+        assert_eq!(release(&url, &identity).await.unwrap(), TEST_KEY);
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn skr_rejects_untrusted_node_before_sending_token() {
+        let (url, requests) = start_kms(&ServiceIdentity::new(), "localhost", StatusCode::OK);
+        assert!(release(&url, &ServiceIdentity::new()).await.is_err());
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn skr_rejects_hostname_mismatch_before_sending_token() {
+        let identity = ServiceIdentity::new();
+        let (url, requests) = start_kms(&identity, "other.example", StatusCode::OK);
+        assert!(release(&url, &identity).await.is_err());
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn skr_does_not_follow_redirects() {
+        let identity = ServiceIdentity::new();
+        let (url, requests) = start_kms(&identity, "localhost", StatusCode::TEMPORARY_REDIRECT);
+        let err = release(&url, &identity).await.unwrap_err();
+        assert!(matches!(
+            err.downcast_ref::<ServerError>(),
+            Some(ServerError::KMSUnexpected(307))
+        ));
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    fn ledger_identity(ledger_id: &str) -> LedgerIdentity {
+        LedgerIdentity {
+            ledger_id: ledger_id.to_string(),
+            ledger_tls_certificate: "service-cert".to_string(),
+        }
+    }
+
+    #[test]
+    fn ledger_identity_returns_cert_for_matching_ledger() {
+        assert_eq!(
+            validate_ledger_identity(ledger_identity("example"), "example").unwrap(),
+            "service-cert"
+        );
+    }
+
+    #[test]
+    fn ledger_identity_rejects_other_ledger() {
+        let err = validate_ledger_identity(ledger_identity("other"), "example").unwrap_err();
+        assert!(matches!(
+            err.downcast_ref::<ServerError>(),
+            Some(ServerError::KMSLedgerIdentityMismatch(returned, expected))
+                if returned == "other" && expected == "example"
+        ));
+    }
+
+    #[test]
+    fn ledger_name_requires_https_azure_confidential_ledger_host() {
+        assert_eq!(
+            ledger_name("https://example.confidential-ledger.azure.com/app/key").unwrap(),
+            "example"
+        );
+        for url in [
+            "http://example.confidential-ledger.azure.com/app/key",
+            "https://localhost/app/key",
+            "https://example.confidential-ledger.azure.com.evil.example/app/key",
+            "https://nested.example.confidential-ledger.azure.com/app/key",
+            "https://confidential-ledger.azure.com/app/key",
+        ] {
+            assert!(
+                matches!(
+                    ledger_name(url).unwrap_err().downcast_ref::<ServerError>(),
+                    Some(ServerError::KMSUntrustedEndpoint)
+                ),
+                "{url}"
+            );
         }
     }
 }

@@ -53,4 +53,5 @@ default-features = false
 [dev-dependencies]
 hyper = "0.14"  # Use the latest patch version for the 0.14.x series
 ohttp-client = {path = "../external/attested-ohttp-client/ohttp-client" }
+rcgen = "0.13"
 
